@@ -70,6 +70,7 @@ const adminExportDbBtnEl = document.getElementById('adminExportDbBtn');
 const adminDeleteUserBtnEl = document.getElementById('adminDeleteUserBtn');
 
 const appPanelEl = document.getElementById('appPanel');
+const saveStatusBannerEl = document.getElementById('saveStatusBanner');
 const rankingsViewEl = document.getElementById('rankingsView');
 const othersRankingsViewEl = document.getElementById('othersRankingsView');
 const chatViewEl = document.getElementById('chatView');
@@ -843,6 +844,37 @@ function updateSaveState() {
   if (saveIndicatorEl) {
     saveIndicatorEl.classList.toggle('hidden', !state.hasUnsavedChanges);
   }
+  renderSaveStatusBanner();
+}
+
+function hasSavedCurrentWeekLineup() {
+  if (!state.user?.username) return false;
+  const currentUserRow = Array.isArray(state.fullStandings?.rows)
+    ? state.fullStandings.rows.find((row) => row.username === state.user.username)
+    : null;
+  return Boolean(currentUserRow?.savedWeeks?.[state.currentWeek]);
+}
+
+function renderSaveStatusBanner() {
+  if (!saveStatusBannerEl) return;
+  if (!state.user) {
+    saveStatusBannerEl.textContent = '';
+    saveStatusBannerEl.classList.add('hidden');
+    saveStatusBannerEl.classList.remove('is-unsaved', 'is-missing');
+    return;
+  }
+
+  let bannerText = '';
+  if (state.hasUnsavedChanges) {
+    bannerText = 'Changes not Saved';
+  } else if (!hasSavedCurrentWeekLineup()) {
+    bannerText = 'No Lineup Saved this Week';
+  }
+
+  saveStatusBannerEl.textContent = bannerText;
+  saveStatusBannerEl.classList.toggle('hidden', !bannerText);
+  saveStatusBannerEl.classList.toggle('is-unsaved', bannerText === 'Changes not Saved');
+  saveStatusBannerEl.classList.toggle('is-missing', bannerText === 'No Lineup Saved this Week');
 }
 
 function renderLeaderboard() {
