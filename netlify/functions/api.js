@@ -784,6 +784,21 @@ function getLineupForWeek(db, username, week) {
   return defaultLineup();
 }
 
+function getRankMapForWeek(db, username, week) {
+  const weekNum = Number(week);
+  if (!Number.isInteger(weekNum) || weekNum < 1 || !db.users?.[username]) {
+    return {};
+  }
+  const priorWeekVotedOff = weekNum > 1 ? getEffectiveWeekVotedOff(db, weekNum - 1) : defaultVotedOff();
+  const lineup = getLineupForWeek(db, username, weekNum);
+  const activeOrder = lineup.filter((id) => !priorWeekVotedOff[id]);
+  const rankMap = {};
+  activeOrder.forEach((id, index) => {
+    rankMap[id] = index + 1;
+  });
+  return rankMap;
+}
+
 function hasSavedLineupForWeek(db, username, week) {
   const weekNum = Number(week);
   if (!Number.isInteger(weekNum) || weekNum < 1) return false;
@@ -1384,12 +1399,16 @@ function buildGamePayload(db, authenticatedUser, requestedWeek) {
   let omittedWeeks = {};
   let notes = {};
   let winnerPicks = [];
+  let previousWeekRanks = {};
   const priorVotedOff = selectedWeek > 1 ? getEffectiveWeekVotedOff(db, selectedWeek - 1) : defaultVotedOff();
 
   if (authenticatedUser) {
     lineup = getLineupForWeek(db, authenticatedUser.username, selectedWeek);
     notes = getNotesForWeek(db, authenticatedUser.username, selectedWeek);
     winnerPicks = getWinnerPicksForWeek(db, authenticatedUser.username, selectedWeek);
+    previousWeekRanks = selectedWeek > 2
+      ? getRankMapForWeek(db, authenticatedUser.username, selectedWeek - 1)
+      : {};
     score = computeScoreBreakdown(db, authenticatedUser.username);
     skippedWeeks = normalizeSkippedWeeks(db.skips[authenticatedUser.username]);
     omittedWeeks = normalizeScoreOmissionsMap(db.scoreOmissions[authenticatedUser.username]);
@@ -1413,6 +1432,7 @@ function buildGamePayload(db, authenticatedUser, requestedWeek) {
     priorVotedOff,
     lineup,
     notes,
+    previousWeekRanks,
     winnerPicks,
     tribesById: normalizeTribesById(db.tribesById),
     skippedWeeks,

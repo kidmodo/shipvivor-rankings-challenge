@@ -123,6 +123,7 @@ const state = {
   activeLineup: [],
   eliminatedLineup: [],
   notes: {},
+  previousWeekRanks: {},
   winnerPicks: [],
   tribesById: {},
   skippedWeeks: {},
@@ -438,6 +439,16 @@ function formatPoints(value) {
   return num.toFixed(1);
 }
 
+function formatRankDelta(currentRank, previousRank) {
+  const current = Number(currentRank);
+  const previous = Number(previousRank);
+  if (!Number.isInteger(current) || !Number.isInteger(previous)) return null;
+  const delta = previous - current;
+  if (delta > 0) return { value: delta, text: `+${delta}`, className: 'positive' };
+  if (delta < 0) return { value: delta, text: String(delta), className: 'negative' };
+  return { value: 0, text: '0', className: 'neutral' };
+}
+
 function stopChatPolling() {
   if (!state.chatPollTimer) return;
   window.clearInterval(state.chatPollTimer);
@@ -691,6 +702,9 @@ function applyPayload(payload) {
   state.votedOff = payload.votedOff || {};
   state.fullLineup = normalizeLineup(payload.lineup || state.cast.map((castaway) => castaway.id));
   state.notes = payload.notes || {};
+  state.previousWeekRanks = payload.previousWeekRanks && typeof payload.previousWeekRanks === 'object'
+    ? payload.previousWeekRanks
+    : {};
   state.winnerPicks = normalizeWinnerPicks(payload.winnerPicks || []);
   state.tribesById = payload.tribesById && typeof payload.tribesById === 'object'
     ? payload.tribesById
@@ -1150,6 +1164,8 @@ function renderRankList() {
       && state.weekCommentOfWeek.username === state.lineupOwner
       && state.weekCommentOfWeek.castawayId === id
     );
+    const rankDelta = formatRankDelta(index + 1, state.previousWeekRanks?.[id]);
+    const showRankDelta = Boolean(rankDelta && state.selectedWeek > 2);
 
     const isVotedOff = Boolean(state.votedOff[id]);
     const li = document.createElement('li');
@@ -1175,6 +1191,9 @@ function renderRankList() {
       <div class="move-controls">
         <button type="button" class="move-btn" data-role="move-up" ${index === 0 || !editable ? 'disabled' : ''}>▲</button>
         <button type="button" class="move-btn" data-role="move-down" ${index === state.activeLineup.length - 1 || !editable ? 'disabled' : ''}>▼</button>
+        <div class="rank-change${showRankDelta ? ` ${rankDelta.className}` : ' hidden'}" aria-label="${showRankDelta ? `Change from last week: ${rankDelta.text}` : 'No last-week comparison'}">
+          ${showRankDelta ? rankDelta.text : ''}
+        </div>
       </div>
       <div class="rank">
         <div class="rank-badge">
