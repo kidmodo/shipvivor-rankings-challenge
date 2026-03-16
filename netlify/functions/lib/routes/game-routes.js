@@ -27,12 +27,15 @@ function validateWeekInRange(db, week, { min = 1, max = db.game.currentWeek } = 
   return Number.isInteger(week) && week >= min && week <= max;
 }
 
-function validateLineupOrder(order) {
+function validateLineupOrder(order, activeCastIds) {
   if (!Array.isArray(order)) {
     return 'Lineup order must be an array.';
   }
-  if (order.length !== CAST_IDS.length) {
-    return `Lineup order must include exactly ${CAST_IDS.length} castaways.`;
+  const expectedActiveIds = Array.isArray(activeCastIds) ? activeCastIds : CAST_IDS;
+  const expectsFullCast = order.length === CAST_IDS.length;
+  const expectsActiveCast = order.length === expectedActiveIds.length;
+  if (!expectsFullCast && !expectsActiveCast) {
+    return `Lineup order must include exactly ${expectedActiveIds.length} active castaways.`;
   }
   const seen = new Set();
   for (const castId of order) {
@@ -43,6 +46,13 @@ function validateLineupOrder(order) {
       return 'Lineup order cannot include duplicate castaways.';
     }
     seen.add(castId);
+  }
+  if (expectsActiveCast) {
+    for (const castId of expectedActiveIds) {
+      if (!seen.has(castId)) {
+        return 'Lineup order must include every active castaway exactly once.';
+      }
+    }
   }
   return null;
 }
@@ -87,7 +97,9 @@ async function handleSaveLineup({ event, db, authenticatedUser }) {
     };
   }
 
-  const lineupError = validateLineupOrder(body.order);
+  const priorVotedOff = week > 1 ? getEffectiveWeekVotedOff(db, week - 1) : defaultVotedOff();
+  const activeCastIds = CAST_IDS.filter((castId) => !priorVotedOff[castId]);
+  const lineupError = validateLineupOrder(body.order, activeCastIds);
   if (lineupError) {
     return { response: response(400, { ok: false, error: lineupError }) };
   }
