@@ -1,0 +1,211 @@
+const { CAST_IDS, NO_SCORE_WEEKS } = require('../constants');
+const {
+  computeWeekReport,
+  formatWeekLockTime,
+  getEffectiveWeekVotedOff,
+  getNotesForWeek,
+  getLineupForWeek,
+  getUserJoinedWeek,
+  getWeekLockDate,
+  getWeekRecapForWeek,
+  getWinnerPicksForWeek,
+  isWeekLocked
+} = require('../game');
+const { emptyResponse, parseBody, response } = require('../http');
+const {
+  defaultVotedOff,
+  normalizeNotesMap,
+  normalizeOrder,
+  normalizeScoreOmissionsMap,
+  normalizeSkippedWeeks,
+  normalizeWinnerPicksList,
+  normalizeUsername
+} = require('../normalize');
+const { buildGamePayload, getWeekCommentOfWeek } = require('../payloads');
+
+function validateWeekInRange(db, week, { min = 1, max = db.game.currentWeek } = {}) {
+  return Number.isInteger(week) && week >= min && week <= max;
+}
+
+function validateLineupOrder(order) {
+  if (!Array.isArray(order)) {
+    return 'Lineup order must be an array.';
+  }
+  if (order.length !== CAST_IDS.length) {
+    return `Lineup order must include exactly ${CAST_IDS.length} castaways.`;
+  }
+  const seen = new Set();
+  for (const castId of order) {
+    if (!CAST_IDS.includes(castId)) {
+      return 'Lineup order contains an invalid castaway ID.';
+    }
+    if (seen.has(castId)) {
+      return 'Lineup order cannot include duplicate castaways.';
+    }
+    seen.add(castId);
+  }
+  return null;
+}
+
+async function handleGame({ event, db, authenticatedUser, needsSave }) {
+  const sinceRevision = Number(event.queryStringParameters?.sinceRevision);
+  if (Number.isInteger(sinceRevision) && sinceRevision >= 0 && sinceRevision === Number(db.meta?.revision || 0)) {
+    if (needsSave) {
+      return { save: true, response: emptyResponse(304) };
+    }
+    return { response: emptyResponse(304) };
+  }
+
+  if (needsSave) {
+    return {
+      save: true,
+      response: response(200, { ok: true, ...buildGamePayload(db, authenticatedUser, event.queryStringParameters?.week) })
+    };
+  }
+  return { response: response(200, { ok: true, ...buildGamePayload(db, authenticatedUser, event.queryStringParameters?.week) }) };
+}
+
+async function handleSaveLineup({ event, db, authenticatedUser }) {
+  const body = await parseBody(event);
+  const week = Number(body.week);
+  if (!validateWeekInRange(db, week)) {
+    return { response: response(400, { ok: false, error: 'Invalid week.' }) };
+  }
+  if (week !== db.game.currentWeek) {
+    return { response: response(400, { ok: false, error: 'Only the active week can be edited.' }) };
+  }
+  if (NO_SCORE_WEEKS.has(week)) {
+    return { response: response(400, { ok: false, error: 'This week is locked and not scored.' }) };
+  }
+  if (isWeekLocked(week)) {
+    const lockDate = getWeekLockDate(week);
+    return {
+      response: response(400, {
+        ok: false,
+        error: `Week ${week} locked at ${formatWeekLockTime(lockDate)}.`
+      })
+    };
+  }
+
+  const lineupError = validateLineupOrder(body.order);
+  if (lineupError) {
+    return { response: response(400, { ok: false, error: lineupError }) };
+  }
+  if (!body.notes || typeof body.notes !== 'object' || Array.isArray(body.notes)) {
+    return { response: response(400, { ok: false, error: 'Notes must be an object keyed by castaway ID.' }) };
+  }
+
+  const lineup = normalizeOrder(body.order);
+  const winnerPicks = normalizeWinnerPicksList(body.winnerPicks);
+  if (!db.lineups[authenticatedUser.username]) db.lineups[authenticatedUser.username] = {};
+  db.lineups[authenticatedUser.username][week] = lineup;
+  if (!db.notes[authenticatedUser.username]) db.notes[authenticatedUser.username] = {};
+  db.notes[authenticatedUser.username][week] = normalizeNotesMap(body.notes);
+  if (!db.winnerPicks[authenticatedUser.username] || typeof db.winnerPicks[authenticatedUser.username] !== 'object') {
+    db.winnerPicks[authenticatedUser.username] = {};
+  }
+  db.winnerPicks[authenticatedUser.username][week] = winnerPicks;
+
+  return {
+    save: true,
+    response: response(200, {
+      ok: true,
+      ...buildGamePayload(db, authenticatedUser, week)
+    })
+  };
+}
+
+async function handleSetSkipWeek({ event, db, authenticatedUser }) {
+  const body = await parseBody(event);
+  const week = Number(body.week);
+  if (!validateWeekInRange(db, week)) {
+    return { response: response(400, { ok: false, error: 'Invalid week.' }) };
+  }
+  if (week !== db.game.currentWeek) {
+    return { response: response(400, { ok: false, error: 'You can only skip the active week.' }) };
+  }
+  if (NO_SCORE_WEEKS.has(week)) {
+    return { response: response(400, { ok: false, error: 'This week is already excluded from scoring.' }) };
+  }
+  if (isWeekLocked(week)) {
+    const lockDate = getWeekLockDate(week);
+    return {
+      response: response(400, {
+        ok: false,
+        error: `Week ${week} locked at ${formatWeekLockTime(lockDate)}.`
+      })
+    };
+  }
+  const skip = Boolean(body.skip);
+  if (!db.skips[authenticatedUser.username] || typeof db.skips[authenticatedUser.username] !== 'object') {
+    db.skips[authenticatedUser.username] = {};
+  }
+  if (skip) {
+    db.skips[authenticatedUser.username][week] = true;
+  } else {
+    delete db.skips[authenticatedUser.username][week];
+  }
+  db.skips[authenticatedUser.username] = normalizeSkippedWeeks(db.skips[authenticatedUser.username]);
+
+  return {
+    save: true,
+    response: response(200, {
+      ok: true,
+      ...buildGamePayload(db, authenticatedUser, week)
+    })
+  };
+}
+
+async function handleViewUserWeek({ event, db }) {
+  const week = Number(event.queryStringParameters?.week);
+  const username = normalizeUsername(event.queryStringParameters?.username);
+  if (!Number.isInteger(week) || week < 1 || week >= db.game.currentWeek) {
+    return { response: response(400, { ok: false, error: 'You can only view completed weeks.' }) };
+  }
+  if (NO_SCORE_WEEKS.has(week)) {
+    return { response: response(400, { ok: false, error: 'That week is excluded from scoring.' }) };
+  }
+  if (!db.users[username]) {
+    return { response: response(404, { ok: false, error: 'User not found.' }) };
+  }
+
+  const lineup = getLineupForWeek(db, username, week);
+  const notes = getNotesForWeek(db, username, week);
+  const winnerPicks = getWinnerPicksForWeek(db, username, week);
+  const priorVotedOff = week > 1 ? getEffectiveWeekVotedOff(db, week - 1) : defaultVotedOff();
+  const votedOff = getEffectiveWeekVotedOff(db, week);
+  const weekReport = db.reports[week] || computeWeekReport(db, week);
+  const skippedWeeks = normalizeSkippedWeeks(db.skips[username]);
+  const omittedWeeks = normalizeScoreOmissionsMap(db.scoreOmissions[username]);
+  const joinedWeek = getUserJoinedWeek(db, username);
+  const weekRecap = getWeekRecapForWeek(db, week);
+  const weekCommentOfWeek = getWeekCommentOfWeek(db, week);
+
+  return {
+    response: response(200, {
+      ok: true,
+      week,
+      username,
+      lineup,
+      notes,
+      winnerPicks,
+      weekReport,
+      priorVotedOff,
+      votedOff,
+      weekRecapWeek: week,
+      weekRecapTitle: weekRecap.title,
+      weekRecap: weekRecap.message,
+      weekCommentOfWeek,
+      isSkippedWeek: Boolean(skippedWeeks[week]),
+      isOmittedWeek: Boolean(omittedWeeks[week] || week < joinedWeek)
+    })
+  };
+}
+
+module.exports = {
+  handleGame,
+  handleSaveLineup,
+  handleSetSkipWeek,
+  handleViewUserWeek,
+  validateWeekInRange
+};

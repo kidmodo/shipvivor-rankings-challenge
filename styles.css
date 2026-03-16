@@ -886,6 +886,7 @@ button:disabled {
   background: transparent;
   color: #5a4428;
   padding: 0.4rem 0.8rem;
+  min-height: 44px;
   font-weight: 800;
   cursor: pointer;
 }
@@ -897,6 +898,29 @@ button:disabled {
 .tab-btn.active {
   background: linear-gradient(180deg, #2c8a5d, #1f6b46);
   color: #fff;
+}
+
+.unread-badge {
+  background: #c84f1b;
+  color: #fff;
+  border-radius: 50%;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+  font-weight: 800;
+  vertical-align: middle;
+}
+
+.save-indicator {
+  display: inline-block;
+  margin-left: 0.2rem;
+  color: #c84f1b;
+  font-weight: 900;
 }
 
 .lock-countdown-card {
@@ -1807,6 +1831,20 @@ button:disabled {
 }
 
 @media (max-width: 680px) {
+  .tab-btn {
+    min-height: 44px;
+    padding: 0.55rem 0.9rem;
+  }
+
+  .move-btn,
+  .drag-handle {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .app-shell {
     width: min(1100px, 100% - 0.8rem);
   }

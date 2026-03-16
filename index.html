@@ -93,6 +93,7 @@
             </div>
             <div class="admin-user-actions">
               <button id="adminResetPasswordBtn" type="button" class="ghost-btn">Change Password</button>
+              <button id="adminExportDbBtn" type="button" class="ghost-btn">Export DB</button>
               <button id="adminDeleteUserBtn" type="button" class="admin-btn">Delete User</button>
             </div>
           </div>
@@ -173,7 +174,7 @@
           <button id="setLineupTabBtn" type="button" class="tab-btn active">Set Lineup</button>
           <button id="standingsTabBtn" type="button" class="tab-btn">Standings</button>
           <button id="othersRankingsTabBtn" type="button" class="tab-btn">Others Rankings</button>
-          <button id="chatTabBtn" type="button" class="tab-btn">Smack Talk</button>
+          <button id="chatTabBtn" type="button" class="tab-btn">Smack Talk <span id="chatUnreadBadge" class="unread-badge hidden" aria-live="polite">0</span></button>
         </nav>
         <div class="app-tabs-meta">
           <div id="userAffiliationBadge" class="user-affiliation-badge hidden"></div>
@@ -248,7 +249,7 @@
         <section class="controls">
           <label for="weekSelect">Week</label>
           <select id="weekSelect" aria-label="Select past week"></select>
-          <button id="saveWeekBtn" type="button">Save Lineup</button>
+          <button id="saveWeekBtn" type="button">Save Lineup <span id="saveIndicator" class="save-indicator hidden" aria-hidden="true">*</span></button>
           <button id="skipWeekBtn" type="button" class="warn-btn">Skip Week</button>
           <button id="resetWeekBtn" type="button" class="ghost-btn">Reset This Week</button>
           <button id="advanceWeekBtn" type="button" class="admin-btn hidden">Advance Week (Admin)</button>
@@ -332,6 +333,6 @@
     </footer>
   </main>
 
-  <script src="./app.js"></script>
+  <script type="module" src="./js/main.js"></script>
 </body>
 </html>

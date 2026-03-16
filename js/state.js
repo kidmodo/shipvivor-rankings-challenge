@@ -1,0 +1,2 @@
+export const CHAT_POLL_INTERVAL_MS = 8000;
+export const GAME_POLL_INTERVAL_MS = 15000;

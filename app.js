@@ -1,3 +1,11 @@
+import { buildApiUrl } from './js/api.js';
+import { hasAdminAccess } from './js/admin.js';
+import { countUnreadMessages, getLatestMessageId } from './js/chat.js';
+import { clampIndex } from './js/drag.js';
+import { setElementHidden } from './js/render.js';
+import { CHAT_POLL_INTERVAL_MS, GAME_POLL_INTERVAL_MS } from './js/state.js';
+import { downloadBlob } from './js/utils.js';
+
 const TOKEN_KEY = 'shipvivor-token';
 const LAST_KNOWN_WEEK_KEY = 'shipvivor-last-known-week';
 const TRIBE_META = {
@@ -58,6 +66,7 @@ const adminBirthNameInputEl = document.getElementById('adminBirthNameInput');
 const adminAffiliationSelectEl = document.getElementById('adminAffiliationSelect');
 const adminSaveUserProfileBtnEl = document.getElementById('adminSaveUserProfileBtn');
 const adminResetPasswordBtnEl = document.getElementById('adminResetPasswordBtn');
+const adminExportDbBtnEl = document.getElementById('adminExportDbBtn');
 const adminDeleteUserBtnEl = document.getElementById('adminDeleteUserBtn');
 
 const appPanelEl = document.getElementById('appPanel');
@@ -69,8 +78,10 @@ const setLineupTabBtnEl = document.getElementById('setLineupTabBtn');
 const standingsTabBtnEl = document.getElementById('standingsTabBtn');
 const othersRankingsTabBtnEl = document.getElementById('othersRankingsTabBtn');
 const chatTabBtnEl = document.getElementById('chatTabBtn');
+const chatUnreadBadgeEl = document.getElementById('chatUnreadBadge');
 const weekSelectEl = document.getElementById('weekSelect');
 const saveWeekBtnEl = document.getElementById('saveWeekBtn');
+const saveIndicatorEl = document.getElementById('saveIndicator');
 const skipWeekBtnEl = document.getElementById('skipWeekBtn');
 const skipWeekNoteEl = document.getElementById('skipWeekNote');
 const resetWeekBtnEl = document.getElementById('resetWeekBtn');
@@ -183,6 +194,11 @@ const state = {
   canEditVotedOff: false,
   tribeUpdateInFlight: false,
   birthNameUpdateInFlight: false,
+  hasUnsavedChanges: false,
+  lastSeenChatMessageId: null,
+  unreadChatCount: 0,
+  hasInitializedChatState: false,
+  pageHidden: document.hidden,
   dirty: false,
   draggingId: null,
   dropInsertIndex: null,
@@ -213,13 +229,7 @@ function setToken(token) {
 
 async function apiRequest(action, { method = 'GET', params = {}, data = null } = {}) {
   const requestSeq = ++state.requestCounter;
-  const url = new URL('/api/', window.location.origin);
-  url.searchParams.set('action', action);
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null) {
-      url.searchParams.set(key, String(value));
-    }
-  }
+  const url = buildApiUrl(action, params);
 
   const headers = { 'content-type': 'application/json' };
   if (state.token) headers.authorization = `Bearer ${state.token}`;
@@ -230,6 +240,10 @@ async function apiRequest(action, { method = 'GET', params = {}, data = null } =
     headers,
     body: data ? JSON.stringify(data) : null
   });
+
+  if (response.status === 304) {
+    return { ok: true, unchanged: true, __requestSeq: requestSeq };
+  }
 
   const payload = await response.json().catch(() => ({}));
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
@@ -449,6 +463,61 @@ function formatRankDelta(currentRank, previousRank) {
   return { value: 0, text: '0', className: 'neutral' };
 }
 
+function getLatestChatMessageId() {
+  return getLatestMessageId(state.chatMessages);
+}
+
+function updateUnreadChatState() {
+  const latestId = getLatestChatMessageId();
+  if (!latestId) {
+    state.unreadChatCount = 0;
+    if (!state.lastSeenChatMessageId) {
+      state.lastSeenChatMessageId = null;
+    }
+    return;
+  }
+  if (!state.hasInitializedChatState) {
+    state.hasInitializedChatState = true;
+    state.lastSeenChatMessageId = latestId;
+    state.unreadChatCount = 0;
+    return;
+  }
+  if (!state.lastSeenChatMessageId) {
+    if (state.activeTab === 'chat') {
+      state.lastSeenChatMessageId = latestId;
+      state.unreadChatCount = 0;
+    } else {
+      state.unreadChatCount = countUnreadMessages(state.chatMessages, state.lastSeenChatMessageId);
+    }
+    return;
+  }
+  const unreadCount = countUnreadMessages(state.chatMessages, state.lastSeenChatMessageId);
+  const hasLastSeenMessage = state.chatMessages.some((message) => message.id === state.lastSeenChatMessageId);
+  if (!hasLastSeenMessage) {
+    state.unreadChatCount = state.activeTab === 'chat' ? 0 : unreadCount;
+    if (state.activeTab === 'chat') {
+      state.lastSeenChatMessageId = latestId;
+    }
+    return;
+  }
+  state.unreadChatCount = state.activeTab === 'chat' ? 0 : unreadCount;
+}
+
+function markChatAsSeen() {
+  const latestId = getLatestChatMessageId();
+  if (!latestId) return;
+  state.lastSeenChatMessageId = latestId;
+  state.unreadChatCount = 0;
+  renderChatUnreadBadge();
+}
+
+function renderChatUnreadBadge() {
+  if (!chatUnreadBadgeEl) return;
+  const unreadCount = state.activeTab === 'chat' ? 0 : Number(state.unreadChatCount || 0);
+  chatUnreadBadgeEl.textContent = String(unreadCount);
+  chatUnreadBadgeEl.classList.toggle('hidden', unreadCount < 1);
+}
+
 function stopChatPolling() {
   if (!state.chatPollTimer) return;
   window.clearInterval(state.chatPollTimer);
@@ -457,10 +526,10 @@ function stopChatPolling() {
 
 function startChatPolling() {
   stopChatPolling();
-  if (!state.user || state.activeTab !== 'chat') return;
+  if (!state.user || state.pageHidden) return;
   state.chatPollTimer = window.setInterval(() => {
     fetchChatData(true);
-  }, 3000);
+  }, CHAT_POLL_INTERVAL_MS);
 }
 
 function stopGamePolling() {
@@ -471,7 +540,7 @@ function stopGamePolling() {
 
 function startGamePolling() {
   stopGamePolling();
-  if (!state.user) return;
+  if (!state.user || state.pageHidden) return;
   state.gamePollTimer = window.setInterval(async () => {
     if (!state.user || state.loading || state.isViewingOther || hasPendingLocalEdits()) return;
     try {
@@ -487,7 +556,7 @@ function startGamePolling() {
     } catch {
       // silent background sync
     }
-  }, 3000);
+  }, GAME_POLL_INTERVAL_MS);
 }
 
 function renderLockCountdown() {
@@ -543,6 +612,7 @@ function setActiveTab(tabName) {
 
   if (chatActive) {
     renderChat();
+    markChatAsSeen();
   }
   if (standingsActive) {
     renderFullStandings();
@@ -551,6 +621,7 @@ function setActiveTab(tabName) {
     renderOthersRankings();
   }
   renderUserAffiliationBadge();
+  renderChatUnreadBadge();
   startChatPolling();
 }
 
@@ -621,7 +692,7 @@ function movePlayerToIndex(id, nextIndex) {
   if (!isLineupEditable()) return;
   const currentIndex = state.activeLineup.indexOf(id);
   if (currentIndex < 0) return;
-  const boundedIndex = Math.max(0, Math.min(nextIndex, state.activeLineup.length - 1));
+  const boundedIndex = clampIndex(nextIndex, 0, state.activeLineup.length - 1);
   if (boundedIndex === currentIndex) return;
 
   const next = [...state.activeLineup];
@@ -734,6 +805,7 @@ function applyPayload(payload) {
   const chat = payload.chat || {};
   state.chatMessages = Array.isArray(chat.messages) ? chat.messages : [];
   state.chatAvatarId = chat.userAvatarId || state.chatAvatarId || state.cast[0]?.id || null;
+  updateUnreadChatState();
   state.lineupOwner = state.user?.username || null;
   state.isViewingOther = false;
   if (state.adminTargetUser && !state.allUsers.includes(state.adminTargetUser)) {
@@ -767,6 +839,7 @@ function applyPayload(payload) {
     state.adminProfileDraftAffiliation = getUserAffiliation(state.adminTargetUser);
   }
   state.dirty = false;
+  state.hasUnsavedChanges = false;
   return true;
 }
 
@@ -774,6 +847,9 @@ function updateSaveState() {
   const editable = isLineupEditable();
   saveWeekBtnEl.disabled = !editable || !state.dirty;
   resetWeekBtnEl.disabled = !editable;
+  if (saveIndicatorEl) {
+    saveIndicatorEl.classList.toggle('hidden', !state.hasUnsavedChanges);
+  }
 }
 
 function renderLeaderboard() {
@@ -836,9 +912,9 @@ function setAdminTargetUser(username) {
 }
 
 function renderAdminUserPanel() {
-  const isAdmin = Boolean(state.user?.isAdmin);
+  const isAdmin = hasAdminAccess(state.user);
   if (!isAdmin || !state.adminTargetUser) {
-    adminUserPanelEl.classList.add('hidden');
+    setElementHidden(adminUserPanelEl, true);
     adminUserTargetEl.textContent = '';
     if (adminBirthNameInputEl) adminBirthNameInputEl.value = '';
     if (adminAffiliationSelectEl) adminAffiliationSelectEl.value = '';
@@ -851,7 +927,7 @@ function renderAdminUserPanel() {
     state.adminProfileDraftAffiliation = getUserAffiliation(state.adminTargetUser);
     state.adminProfileDraftDirty = false;
   }
-  adminUserPanelEl.classList.remove('hidden');
+  setElementHidden(adminUserPanelEl, false);
   adminUserTargetEl.innerHTML = `Selected user: ${formatUserLabelHtml(state.adminTargetUser, { includeAffiliationIcon: true })}`;
   if (adminBirthNameInputEl) {
     adminBirthNameInputEl.value = state.adminProfileDraftBirthName || '';
@@ -861,6 +937,9 @@ function renderAdminUserPanel() {
   }
   const isSelf = state.adminTargetUser === state.user.username;
   adminDeleteUserBtnEl.disabled = isSelf;
+  if (adminExportDbBtnEl) {
+    adminExportDbBtnEl.disabled = false;
+  }
   if (adminSaveUserProfileBtnEl) {
     adminSaveUserProfileBtnEl.disabled = !state.adminProfileDraftDirty;
   }
@@ -1057,9 +1136,13 @@ function toggleWinnerPick(castawayId) {
 
 function renderControls() {
   const selectableWeeks = state.weeks.filter((week) => week > 1);
-  weekSelectEl.innerHTML = selectableWeeks
-    .map((week) => `<option value="${week}">Week ${week}</option>`)
-    .join('');
+  weekSelectEl.replaceChildren();
+  selectableWeeks.forEach((week) => {
+    const option = document.createElement('option');
+    option.value = String(week);
+    option.textContent = `Week ${week}`;
+    weekSelectEl.appendChild(option);
+  });
   if (selectableWeeks.includes(state.selectedWeek)) {
     weekSelectEl.value = String(state.selectedWeek);
   } else if (selectableWeeks.includes(state.currentWeek)) {
@@ -1442,12 +1525,20 @@ function renderOthersRankings() {
   const completedWeeks = state.weeks.filter((week) => week > 1 && week < state.currentWeek);
   const userOptions = state.allUsers.filter((username) => username !== state.user?.username);
 
-  othersWeekSelectEl.innerHTML = completedWeeks
-    .map((week) => `<option value="${week}">Week ${week}</option>`)
-    .join('');
-  viewUserSelectEl.innerHTML = userOptions
-    .map((username) => `<option value="${escapeHtml(username)}">${escapeHtml(formatUserLabelText(username))}</option>`)
-    .join('');
+  othersWeekSelectEl.replaceChildren();
+  completedWeeks.forEach((week) => {
+    const option = document.createElement('option');
+    option.value = String(week);
+    option.textContent = `Week ${week}`;
+    othersWeekSelectEl.appendChild(option);
+  });
+  viewUserSelectEl.replaceChildren();
+  userOptions.forEach((username) => {
+    const option = document.createElement('option');
+    option.value = username;
+    option.textContent = formatUserLabelText(username);
+    viewUserSelectEl.appendChild(option);
+  });
 
   if (!completedWeeks.length || !userOptions.length) {
     renderWeekReportTable(null, weekReportWrapEl, weekReportPanelEl);
@@ -1664,9 +1755,13 @@ function renderChat() {
   if (!state.user) return;
 
   const currentAvatar = state.chatAvatarId || state.cast[0]?.id || '';
-  chatAvatarSelectEl.innerHTML = state.cast
-    .map((castaway) => `<option value="${castaway.id}">${escapeHtml(castaway.name)}</option>`)
-    .join('');
+  chatAvatarSelectEl.replaceChildren();
+  state.cast.forEach((castaway) => {
+    const option = document.createElement('option');
+    option.value = castaway.id;
+    option.textContent = castaway.name;
+    chatAvatarSelectEl.appendChild(option);
+  });
   if (state.castMap.has(currentAvatar)) {
     chatAvatarSelectEl.value = currentAvatar;
   } else if (state.cast.length) {
@@ -1699,6 +1794,7 @@ function renderChat() {
     chatMessagesEl.appendChild(li);
   }
   chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+  renderChatUnreadBadge();
 }
 
 function updateChatAvatarPreview(avatarId) {
@@ -1722,8 +1818,12 @@ async function fetchChatData(silent = false) {
     const chat = payload.chat || {};
     state.chatMessages = Array.isArray(chat.messages) ? chat.messages : [];
     state.chatAvatarId = chat.userAvatarId || state.chatAvatarId;
+    updateUnreadChatState();
     if (state.activeTab === 'chat') {
       renderChat();
+      markChatAsSeen();
+    } else {
+      renderChatUnreadBadge();
     }
   } catch (error) {
     if (!silent) {
@@ -1770,6 +1870,7 @@ async function sendChatMessage(event) {
     state.chatMessages = Array.isArray(chat.messages) ? chat.messages : state.chatMessages;
     state.chatAvatarId = chat.userAvatarId || state.chatAvatarId;
     chatInputEl.value = '';
+    markChatAsSeen();
     renderChat();
     await fetchChatData(true);
   } catch (error) {
@@ -1807,6 +1908,28 @@ function render() {
   renderLeaderboard();
   renderUserAffiliationBadge();
   renderAppPanel();
+  renderChatUnreadBadge();
+}
+
+async function refreshVisibleData() {
+  if (!state.user) return;
+  if (!state.loading && !state.isViewingOther && !hasPendingLocalEdits()) {
+    try {
+      const payload = await apiRequest('game', {
+        params: {
+          week: state.selectedWeek,
+          sinceRevision: state.revision
+        }
+      });
+      if (!payload.unchanged) {
+        const applied = applyPayload(payload);
+        if (applied) render();
+      }
+    } catch {
+      // silent visibility refresh
+    }
+  }
+  await fetchChatData(true);
 }
 
 async function loadGame(week = null, retry = true, staleRetryCount = 0) {
@@ -1979,6 +2102,7 @@ async function handleLogout() {
 
 function setDirty(value) {
   state.dirty = value;
+  state.hasUnsavedChanges = value;
   updateSaveState();
 }
 
@@ -2072,7 +2196,7 @@ rankListEl.addEventListener('drop', (event) => {
   const draggingId = state.draggingId;
   const withoutDragged = state.activeLineup.filter((id) => id !== draggingId);
   const desiredIndex = Number.isInteger(state.dropInsertIndex) ? state.dropInsertIndex : withoutDragged.length;
-  const boundedIndex = Math.max(0, Math.min(desiredIndex, withoutDragged.length));
+  const boundedIndex = clampIndex(desiredIndex, 0, withoutDragged.length);
   withoutDragged.splice(boundedIndex, 0, draggingId);
   applyActiveLineup(withoutDragged, true);
   state.draggingId = null;
@@ -2508,6 +2632,38 @@ async function adminDeleteUser() {
   }
 }
 
+async function adminExportDb() {
+  if (!state.user?.isAdmin || !state.token) return;
+  const url = buildApiUrl('admin-export-db');
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        authorization: `Bearer ${state.token}`
+      }
+    });
+    if (!response.ok) {
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch {
+        payload = {};
+      }
+      throw new Error(payload.error || `Request failed (${response.status})`);
+    }
+    const blob = await response.blob();
+    const contentDisposition = response.headers.get('content-disposition') || '';
+    const filenameMatch = contentDisposition.match(/filename="([^"]+)"/i);
+    const filename = filenameMatch?.[1] || `shipvivor-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    downloadBlob(blob, filename);
+    showMessage('Database export downloaded.', false);
+  } catch (error) {
+    showMessage(error.message || 'Failed to export database.');
+  }
+}
+
 weekSelectEl.addEventListener('change', async (event) => {
   const rawWeek = String(event.target.value || '').trim();
   if (!rawWeek) return;
@@ -2662,6 +2818,10 @@ if (adminSaveUserProfileBtnEl) {
   adminSaveUserProfileBtnEl.addEventListener('click', adminSaveUserProfile);
 }
 
+if (adminExportDbBtnEl) {
+  adminExportDbBtnEl.addEventListener('click', adminExportDb);
+}
+
 if (scoringHelpBtnEl) {
   scoringHelpBtnEl.addEventListener('click', openScoringHelpModal);
 }
@@ -2682,6 +2842,24 @@ window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && scoringHelpModalEl && !scoringHelpModalEl.classList.contains('hidden')) {
     closeScoringHelpModal();
   }
+});
+
+document.addEventListener('visibilitychange', () => {
+  state.pageHidden = document.hidden;
+  if (state.pageHidden) {
+    stopGamePolling();
+    stopChatPolling();
+    return;
+  }
+  refreshVisibleData();
+  startGamePolling();
+  startChatPolling();
+});
+
+window.addEventListener('beforeunload', (event) => {
+  if (!state.hasUnsavedChanges) return;
+  event.preventDefault();
+  event.returnValue = '';
 });
 
 loadGame();
