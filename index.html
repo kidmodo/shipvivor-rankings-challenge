@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shipvivor Rankings Challenge</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="scene-overlay"></div>
+  <main class="app-shell">
+    <div id="compactSessionBar" class="compact-session-bar hidden">
+      <span id="sessionText"></span>
+      <span id="compactStatusText" class="compact-status"></span>
+      <button id="logoutBtn" type="button" class="ghost-btn">Log Out</button>
+    </div>
+
+    <header class="header">
+      <div class="brand-block">
+        <div class="brand-icons" aria-hidden="true">
+          <span class="brand-icon">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v18m0-18 4 4m-4-4-4 4M8 14l4 4 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="brand-icon">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M6 20V9m12 11V9M3 9h18M8 9l4-6 4 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="brand-icon">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v18M8 7c2 0 4 2 4 4m4-4c-2 0-4 2-4 4m-3 3h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+        </div>
+        <h1>Shipvivor Rankings Challenge</h1>
+        <p>Set your weekly Survivor 50 power ranking. Score points based on where you ranked each castaway when they are voted out.</p>
+        <div class="banner-metrics">
+          <article class="metric-card">
+            <span class="metric-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M4 9h16M7 3v4m10-4v4M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+            <div>
+              <p class="metric-label">Active Week</p>
+              <p id="activeWeekBadge" class="metric-value">Week -</p>
+            </div>
+          </article>
+          <article class="metric-card">
+            <span class="metric-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v10m0 0 3-3m-3 3-3-3M5 21h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+            <div>
+              <p class="metric-label">Biggest Upset (Last Week)</p>
+              <p id="biggestUpsetText" class="metric-value">No elimination data yet.</p>
+            </div>
+          </article>
+          <article class="metric-card">
+            <span class="metric-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M7 7h10M7 12h10M7 17h10M4 7h.01M4 12h.01M4 17h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+            <div>
+              <p class="metric-label">Most Hated (Last Week)</p>
+              <p id="mostHatedText" class="metric-subvalue">No data yet.</p>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <div class="header-side">
+        <section class="leaderboard" aria-label="Points leaderboard">
+          <h2 class="leaderboard-title">
+            <span class="leaderboard-title-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M8 5h8v2a4 4 0 0 1-8 0V5Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M8 7H5a2 2 0 0 0 2 3h1M16 7h3a2 2 0 0 1-2 3h-1M12 11v4M9 19h6M10 15h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span>TOP 5 BABY TOP 5</span>
+          </h2>
+          <ol id="leaderboardList" class="leaderboard-list"></ol>
+          <div id="adminUserPanel" class="admin-user-panel hidden">
+            <p id="adminUserTarget"></p>
+            <div class="admin-user-profile-fields">
+              <label>
+                Birth Name
+                <input id="adminBirthNameInput" type="text" maxlength="80" placeholder="Birth Name">
+              </label>
+              <label>
+                Ship Knows From
+                <select id="adminAffiliationSelect">
+                  <option value="">Not Set</option>
+                  <option value="minecraft">Minecraft Survivor</option>
+                  <option value="college">College Friend</option>
+                  <option value="chrisblue">Chris Blue Expanded Universe</option>
+                </select>
+              </label>
+              <button id="adminSaveUserProfileBtn" type="button" class="ghost-btn">Save Profile</button>
+            </div>
+            <div class="admin-user-actions">
+              <button id="adminResetPasswordBtn" type="button" class="ghost-btn">Change Password</button>
+              <button id="adminDeleteUserBtn" type="button" class="admin-btn">Delete User</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="week-recap-card" aria-label="Week recap">
+          <div class="week-recap-head">
+            <h2 class="week-recap-title">
+              <span class="week-recap-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M7 4h10a2 2 0 0 1 2 2v14l-4-2-3 2-3-2-4 2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span>Week Recap</span>
+            </h2>
+            <button id="editWeekRecapBtn" type="button" class="week-recap-edit-btn hidden" aria-label="Edit week recap">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="m15 5 4 4M5 19l4-1 10-10a2.8 2.8 0 0 0-4-4L5 14l-1 5Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+          <p id="weekRecapLabel" class="week-recap-label">Week - Summary</p>
+          <p id="weekRecapText" class="week-recap-text">No recap posted yet.</p>
+          <div id="weekRecapAdmin" class="week-recap-admin hidden">
+            <label for="weekRecapTitleInput">Recap Title</label>
+            <input id="weekRecapTitleInput" type="text" maxlength="120" placeholder="Week title">
+            <label for="weekRecapInput">Recap Text</label>
+            <textarea id="weekRecapInput" maxlength="2400" rows="4" placeholder="Write a recap for everyone..."></textarea>
+            <div class="week-recap-actions">
+              <button id="saveWeekRecapBtn" type="button" class="ghost-btn">Save Recap</button>
+              <button id="cancelWeekRecapBtn" type="button" class="ghost-btn">Cancel</button>
+            </div>
+          </div>
+          <div id="weekCommentWrap" class="week-comment-wrap hidden">
+            <p class="week-comment-label">Comment of the Week</p>
+            <p id="weekCommentText" class="week-comment-text"></p>
+            <p id="weekCommentMeta" class="week-comment-meta"></p>
+          </div>
+        </section>
+      </div>
+    </header>
+
+    <section id="authPanel" class="panel auth-panel">
+      <div id="loggedOutView" class="auth-grid">
+        <form id="loginForm" class="auth-form">
+          <h3>Log In</h3>
+          <label>
+            Username
+            <input name="username" type="text" required autocomplete="username">
+          </label>
+          <label>
+            Password
+            <input name="password" type="password" required autocomplete="current-password">
+          </label>
+          <button type="submit">Log In</button>
+        </form>
+
+        <form id="signupForm" class="auth-form">
+          <h3>Create Account</h3>
+          <label>
+            Username
+            <input name="username" type="text" required minlength="3" maxlength="24" pattern="[a-zA-Z0-9_-]+" autocomplete="username">
+          </label>
+          <label>
+            Password
+            <input name="password" type="password" required minlength="8" autocomplete="new-password">
+          </label>
+          <button type="submit">Sign Up</button>
+        </form>
+      </div>
+
+      <p id="authMessage" class="message"></p>
+    </section>
+
+    <section id="appPanel" class="panel hidden">
+      <div class="app-tabs-row">
+        <nav class="app-tabs" aria-label="App sections">
+          <button id="setLineupTabBtn" type="button" class="tab-btn active">Set Lineup</button>
+          <button id="standingsTabBtn" type="button" class="tab-btn">Standings</button>
+          <button id="othersRankingsTabBtn" type="button" class="tab-btn">Others Rankings</button>
+          <button id="chatTabBtn" type="button" class="tab-btn">Smack Talk</button>
+        </nav>
+        <div class="app-tabs-meta">
+          <div id="userAffiliationBadge" class="user-affiliation-badge hidden"></div>
+          <button id="scoringHelpBtn" type="button" class="scoring-help-btn" aria-haspopup="dialog" aria-controls="scoringHelpModal">?</button>
+          <div class="lock-countdown-card" aria-live="polite">
+            <p class="lock-countdown-label">Time until Current Week Locks</p>
+            <p id="lockCountdownText" class="lock-countdown-text">--:--:--</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="scoringHelpModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="scoringHelpTitle">
+        <div class="modal-card">
+          <div class="modal-head">
+            <h3 id="scoringHelpTitle">Scoring Rules</h3>
+            <button id="closeScoringHelpBtn" type="button" class="ghost-btn modal-close-btn">Close</button>
+          </div>
+          <div class="modal-body">
+            <p><strong>Shipvivor Rankings Challenge: Rules + Features Overview</strong></p>
+            <p><strong>Season Structure</strong></p>
+            <ul>
+              <li>Week 1 is excluded from scoring.</li>
+              <li>Week 2 is a legacy scoring week and is frozen as stored data (not recalculated).</li>
+              <li>Weeks 3 through 12 use scaled scoring based on the remaining cast size.</li>
+            </ul>
+            <p><strong>Scoring (Week 3 Onward)</strong></p>
+            <ul>
+              <li>Each elimination uses your rank position for that castaway in that week&apos;s lineup.</li>
+              <li>Let N be the number of active castaways in that week and r your rank for the eliminated player (clamped to 1..N).</li>
+              <li>Cap formula: cap = 22 * (N / 22)^0.7</li>
+              <li>Per elimination: pointsRaw = 1 + (r - 1) * (cap - 1) / (N - 1)</li>
+              <li>Points are rounded to one decimal place.</li>
+              <li>If N = 1, the elimination awards 1.0 point.</li>
+              <li>For double boots or multi-elimination episodes, elimination points are averaged so one episode yields one weekly score swing.</li>
+            </ul>
+            <p><strong>Legacy Week 2 Handling</strong></p>
+            <ul>
+              <li>Week 2 scores remain exactly as stored in the database.</li>
+              <li>Those values are included in totals as legacy data.</li>
+            </ul>
+            <p><strong>Editing + Locking</strong></p>
+            <ul>
+              <li>Only the active week lineup can be edited.</li>
+              <li>Lineups lock at episode start: Wednesday 8:00 PM ET (from Week 3 onward).</li>
+              <li>The countdown card shows time remaining until lock.</li>
+              <li>After lock, active week lineup is read-only.</li>
+            </ul>
+            <p><strong>Skip + Omit Rules</strong></p>
+            <ul>
+              <li>Players can skip the active week (scores 0.0 for that week).</li>
+              <li>Admin can omit a player from a completed week (scores 0.0 for that week).</li>
+              <li>Late joiners are treated as omitted for weeks before they joined.</li>
+            </ul>
+            <p><strong>Tabs + Views</strong></p>
+            <ul>
+              <li><strong>Set Lineup:</strong> set active-week order, notes, winner picks, and save lineup.</li>
+              <li><strong>Standings:</strong> full points table by week. Active week shows a check if lineup is saved, or no-lineup icon if not saved yet.</li>
+              <li><strong>Others Rankings:</strong> completed-week report table plus week/user lookup to view other players&apos; rankings and notes.</li>
+              <li><strong>Smack Talk:</strong> shared chat with selectable castaway avatar.</li>
+            </ul>
+            <p><strong>Admin Controls</strong></p>
+            <ul>
+              <li>Advance week, mark voted-off castaways, edit tribe history, manage users, and update recap.</li>
+              <li>Admin can mark a user note as Comment of the Week for a completed week.</li>
+              <li>Comment of the Week displays on the following week&apos;s recap card.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <section id="rankingsView">
+        <section class="controls">
+          <label for="weekSelect">Week</label>
+          <select id="weekSelect" aria-label="Select past week"></select>
+          <button id="saveWeekBtn" type="button">Save Lineup</button>
+          <button id="skipWeekBtn" type="button" class="warn-btn">Skip Week</button>
+          <button id="resetWeekBtn" type="button" class="ghost-btn">Reset This Week</button>
+          <button id="advanceWeekBtn" type="button" class="admin-btn hidden">Advance Week (Admin)</button>
+          <span id="weekStats" class="stats"></span>
+        </section>
+        <p id="skipWeekNote" class="skip-note hidden"></p>
+
+        <section id="scorePanel" class="score-panel">
+          <h3>Your Score</h3>
+          <p id="myScoreTotal" class="score-total"></p>
+          <ul id="myScoreBreakdown" class="score-breakdown"></ul>
+        </section>
+
+        <ol id="rankList" class="rank-list" aria-label="Power rankings"></ol>
+
+        <section class="eliminated-panel">
+          <h3>Previously Eliminated</h3>
+          <p class="eliminated-subtext">These players move here starting the week after they are voted out.</p>
+          <div id="eliminatedBucket" class="eliminated-bucket"></div>
+        </section>
+      </section>
+
+      <section id="othersRankingsView" class="hidden">
+        <section id="weekReportPanel" class="week-report-panel hidden">
+          <h3>Week Report Table</h3>
+          <p class="report-subtext">Where each player ranked each castaway for this completed week.</p>
+          <div id="weekReportWrap" class="week-report-wrap"></div>
+        </section>
+
+        <section class="controls">
+          <label for="othersWeekSelect">Week</label>
+          <select id="othersWeekSelect" aria-label="Select completed week"></select>
+          <label for="viewUserSelect">User</label>
+          <select id="viewUserSelect" aria-label="View another user's rankings"></select>
+          <span id="othersRankingsStats" class="stats"></span>
+        </section>
+        <section id="omitScorePanel" class="omit-score-panel hidden">
+          <p id="omitScoreStatus" class="omit-score-status"></p>
+          <button id="omitScoreToggleBtn" type="button" class="ghost-btn">Omit From Score</button>
+        </section>
+        <p id="othersSkipNote" class="skip-note hidden"></p>
+        <ol id="othersRankList" class="rank-list" aria-label="Other player rankings"></ol>
+      </section>
+
+      <section id="chatView" class="chat-view hidden">
+        <section class="chat-toolbar">
+          <div class="chat-avatar-picker">
+            <label for="chatAvatarSelect">Your Chat Avatar</label>
+            <div class="chat-avatar-controls">
+              <div class="chat-avatar-preview-wrap">
+                <img id="chatAvatarPreview" class="chat-avatar-preview" alt="Selected chat avatar">
+              </div>
+              <select id="chatAvatarSelect" aria-label="Select your chat avatar"></select>
+              <button id="saveChatAvatarBtn" type="button" class="ghost-btn">Save Avatar</button>
+            </div>
+          </div>
+          <button id="refreshChatBtn" type="button" class="ghost-btn">Refresh</button>
+        </section>
+
+        <section class="chat-feed-panel">
+          <ul id="chatMessages" class="chat-messages" aria-label="Smack talk messages"></ul>
+          <p id="chatEmpty" class="chat-empty hidden">No messages yet. Break the silence.</p>
+        </section>
+
+        <form id="chatForm" class="chat-form">
+          <label for="chatInput">Message</label>
+          <textarea id="chatInput" maxlength="500" rows="3" placeholder="Type your smack talk..."></textarea>
+          <button id="sendChatBtn" type="submit">Send</button>
+        </form>
+      </section>
+
+      <section id="fullStandingsView" class="full-standings-view hidden">
+        <h3>Current Standings</h3>
+        <p class="report-subtext">Total points and week-by-week points for every player.</p>
+        <div id="fullStandingsWrap" class="week-report-wrap"></div>
+      </section>
+    </section>
+
+    <footer class="footer">
+      Photos from official CBS / Paramount Press Express Survivor 50 gallery assets. UI icons are inline open-source SVG artwork.
+    </footer>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>
