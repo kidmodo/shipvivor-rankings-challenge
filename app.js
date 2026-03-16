@@ -197,7 +197,6 @@ const state = {
   hasUnsavedChanges: false,
   lastSeenChatMessageId: null,
   unreadChatCount: 0,
-  hasInitializedChatState: false,
   pageHidden: document.hidden,
   dirty: false,
   draggingId: null,
@@ -471,15 +470,9 @@ function updateUnreadChatState() {
   const latestId = getLatestChatMessageId();
   if (!latestId) {
     state.unreadChatCount = 0;
-    if (!state.lastSeenChatMessageId) {
+    if (state.activeTab === 'chat') {
       state.lastSeenChatMessageId = null;
     }
-    return;
-  }
-  if (!state.hasInitializedChatState) {
-    state.hasInitializedChatState = true;
-    state.lastSeenChatMessageId = latestId;
-    state.unreadChatCount = 0;
     return;
   }
   if (!state.lastSeenChatMessageId) {
