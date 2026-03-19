@@ -1217,7 +1217,9 @@ function renderControls() {
     skipWeekNoteEl.textContent = `Viewing ${formatUserLabelText(state.lineupOwner)} rankings for Week ${state.selectedWeek}.`;
   } else if (!isCurrentWeek) {
     skipWeekNoteEl.classList.remove('hidden');
-    skipWeekNoteEl.textContent = `Week ${state.selectedWeek} is complete and read-only.`;
+    skipWeekNoteEl.textContent = state.canEditVotedOff
+      ? `Week ${state.selectedWeek} is complete and read-only for rankings. Admin can still fix voted-off players here.`
+      : `Week ${state.selectedWeek} is complete and read-only.`;
   } else {
     skipWeekNoteEl.classList.add('hidden');
     skipWeekNoteEl.textContent = '';

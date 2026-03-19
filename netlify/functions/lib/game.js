@@ -113,6 +113,23 @@ function getWeekTransition(db, week) {
   };
 }
 
+function propagateVotedOffForward(db, startWeek) {
+  const startWeekNum = Number(startWeek);
+  if (!Number.isInteger(startWeekNum) || startWeekNum < 1) return;
+  let previousWeekVotedOff = getEffectiveWeekVotedOff(db, startWeekNum);
+  for (let week = startWeekNum + 1; week <= db.game.currentWeek; week += 1) {
+    const currentWeekVotedOff = getEffectiveWeekVotedOff(db, week);
+    const nextWeekVotedOff = normalizeVotedOff(currentWeekVotedOff);
+    for (const id of CAST_IDS) {
+      if (previousWeekVotedOff[id]) {
+        nextWeekVotedOff[id] = true;
+      }
+    }
+    db.game.weeks[week] = { votedOff: nextWeekVotedOff };
+    previousWeekVotedOff = nextWeekVotedOff;
+  }
+}
+
 function getLineupForWeek(db, username, week) {
   const userLineups = db.lineups[username] || {};
   for (let cursor = week; cursor >= 1; cursor -= 1) {
@@ -142,6 +159,23 @@ function hasSavedLineupForWeek(db, username, week) {
   const userLineups = db.lineups?.[username];
   if (!userLineups || typeof userLineups !== 'object') return false;
   return Array.isArray(userLineups[weekNum]);
+}
+
+function autoOmitMissingLineupsForWeek(db, week) {
+  const weekNum = Number(week);
+  if (!Number.isInteger(weekNum) || weekNum < 1 || NO_SCORE_WEEKS.has(weekNum)) return;
+  for (const username of Object.keys(db.users)) {
+    const joinedWeek = getUserJoinedWeek(db, username);
+    const skippedWeeks = normalizeSkippedWeeks(db.skips[username]);
+    if (weekNum < joinedWeek) continue;
+    if (skippedWeeks[weekNum]) continue;
+    if (hasSavedLineupForWeek(db, username, weekNum)) continue;
+    if (!db.scoreOmissions[username] || typeof db.scoreOmissions[username] !== 'object') {
+      db.scoreOmissions[username] = {};
+    }
+    db.scoreOmissions[username][weekNum] = true;
+    db.scoreOmissions[username] = normalizeScoreOmissionsMap(db.scoreOmissions[username]);
+  }
 }
 
 function computeWeekReport(db, week) {
@@ -189,6 +223,7 @@ module.exports = {
   computeWeekReport,
   ensureWeek,
   formatWeekLockTime,
+  autoOmitMissingLineupsForWeek,
   getEffectiveWeekVotedOff,
   getLineupForWeek,
   getNotesForWeek,
@@ -199,5 +234,6 @@ module.exports = {
   getWeekTransition,
   getWinnerPicksForWeek,
   hasSavedLineupForWeek,
-  isWeekLocked
+  isWeekLocked,
+  propagateVotedOffForward
 };

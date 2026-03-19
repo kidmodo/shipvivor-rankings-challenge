@@ -5,10 +5,12 @@ const {
   NO_SCORE_WEEKS
 } = require('../constants');
 const {
+  autoOmitMissingLineupsForWeek,
   computeWeekReport,
   ensureWeek,
   getEffectiveWeekVotedOff,
-  getNotesForWeek
+  getNotesForWeek,
+  propagateVotedOffForward
 } = require('../game');
 const { parseBody, response } = require('../http');
 const {
@@ -52,15 +54,16 @@ async function handleAdminUpdateVotedOff({ event, db, authenticatedUser }) {
   if (!validateCurrentWeek(db, week)) {
     return { response: response(400, { ok: false, error: 'Invalid week.' }) };
   }
-  if (week !== db.game.currentWeek) {
-    return { response: response(400, { ok: false, error: 'You can only edit voted-off players for the current week.' }) };
-  }
   if (NO_SCORE_WEEKS.has(week)) {
     return { response: response(400, { ok: false, error: 'This week is locked.' }) };
   }
 
   const votedOff = normalizeVotedOff(body.votedOff);
   db.game.weeks[week] = { votedOff };
+  propagateVotedOffForward(db, week);
+  if (week < db.game.currentWeek) {
+    db.reports[week] = computeWeekReport(db, week);
+  }
 
   return {
     save: true,
@@ -159,6 +162,7 @@ async function handleAdminAdvanceWeek({ db, authenticatedUser }) {
   }
 
   const completedWeek = db.game.currentWeek;
+  autoOmitMissingLineupsForWeek(db, completedWeek);
   db.reports[completedWeek] = computeWeekReport(db, completedWeek);
   const nextWeek = db.game.currentWeek + 1;
   const previousVotedOff = getEffectiveWeekVotedOff(db, db.game.currentWeek);
@@ -307,6 +311,7 @@ async function handleAdminSetOmitScoreWeek({ event, db, authenticatedUser }) {
     delete db.scoreOmissions[username][week];
   }
   db.scoreOmissions[username] = normalizeScoreOmissionsMap(db.scoreOmissions[username]);
+  db.reports[week] = computeWeekReport(db, week);
 
   const requestedWeek = Number(body.requestedWeek);
   const safeWeek = Number.isInteger(requestedWeek) && requestedWeek >= 1 && requestedWeek <= db.game.currentWeek

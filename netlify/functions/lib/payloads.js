@@ -261,7 +261,7 @@ function buildGamePayload(db, authenticatedUser, requestedWeek) {
     weekReport,
     chat,
     myScore: score,
-    canEditVotedOff: Boolean(authenticatedUser?.isAdmin && selectedWeek === db.game.currentWeek && !NO_SCORE_WEEKS.has(selectedWeek))
+    canEditVotedOff: Boolean(authenticatedUser?.isAdmin && selectedWeek > 1 && !NO_SCORE_WEEKS.has(selectedWeek))
   };
 }
 
