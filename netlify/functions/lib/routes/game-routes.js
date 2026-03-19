@@ -15,6 +15,7 @@ const { emptyResponse, parseBody, response } = require('../http');
 const {
   defaultVotedOff,
   normalizeNotesMap,
+  normalizeScoreInclusionsMap,
   normalizeOrder,
   normalizeScoreOmissionsMap,
   normalizeSkippedWeeks,
@@ -22,6 +23,7 @@ const {
   normalizeUsername
 } = require('../normalize');
 const { buildGamePayload, getWeekCommentOfWeek } = require('../payloads');
+const { getWeekScoringStatus } = require('../scoring');
 
 function validateWeekInRange(db, week, { min = 1, max = db.game.currentWeek } = {}) {
   return Number.isInteger(week) && week >= min && week <= max;
@@ -186,10 +188,11 @@ async function handleViewUserWeek({ event, db }) {
   const winnerPicks = getWinnerPicksForWeek(db, username, week);
   const priorVotedOff = week > 1 ? getEffectiveWeekVotedOff(db, week - 1) : defaultVotedOff();
   const votedOff = getEffectiveWeekVotedOff(db, week);
-  const weekReport = db.reports[week] || computeWeekReport(db, week);
+  const weekReport = computeWeekReport(db, week);
   const skippedWeeks = normalizeSkippedWeeks(db.skips[username]);
   const omittedWeeks = normalizeScoreOmissionsMap(db.scoreOmissions[username]);
-  const joinedWeek = getUserJoinedWeek(db, username);
+  const scoreInclusions = normalizeScoreInclusionsMap(db.scoreInclusions[username]);
+  const status = getWeekScoringStatus(db, username, week);
   const weekRecap = getWeekRecapForWeek(db, week);
   const weekCommentOfWeek = getWeekCommentOfWeek(db, week);
 
@@ -208,8 +211,14 @@ async function handleViewUserWeek({ event, db }) {
       weekRecapTitle: weekRecap.title,
       weekRecap: weekRecap.message,
       weekCommentOfWeek,
-      isSkippedWeek: Boolean(skippedWeeks[week]),
-      isOmittedWeek: Boolean(omittedWeeks[week] || week < joinedWeek)
+      skippedWeeks,
+      omittedWeeks,
+      scoreInclusions,
+      hasSavedLineup: status.savedLineup,
+      noSubmit: status.noSubmit,
+      countedByAdmin: status.explicitInclude,
+      isSkippedWeek: status.skipped,
+      isOmittedWeek: status.omitted
     })
   };
 }

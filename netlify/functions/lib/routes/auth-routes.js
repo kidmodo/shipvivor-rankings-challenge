@@ -31,6 +31,7 @@ async function handleSignup({ event, db }) {
   db.lineups[username] = { 1: defaultLineup() };
   db.notes[username] = {};
   db.skips[username] = {};
+  db.scoreInclusions[username] = {};
   db.scoreOmissions[username] = {};
   db.winnerPicks[username] = {};
   db.profiles[username] = { chatAvatarId: CAST_IDS[0], birthName: '', affiliation: '' };

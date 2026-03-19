@@ -16,13 +16,19 @@ const {
   defaultVotedOff,
   ensureUserProfile,
   normalizeChatMessages,
+  normalizeScoreInclusionsMap,
   normalizeScoreOmissionsMap,
   normalizeSkippedWeeks,
   normalizeTribesById,
   normalizeWeekCommentsMap,
   sanitizeNote
 } = require('./normalize');
-const { buildFullStandings, buildLeaderboard, computeScoreBreakdown } = require('./scoring');
+const {
+  buildFullStandings,
+  buildLeaderboard,
+  computeScoreBreakdown,
+  getWeekScoringStatus
+} = require('./scoring');
 const { buildUserProfilesPayload, getBirthNameForUsername } = require('./profiles');
 
 function buildChatPayload(db, authenticatedUser) {
@@ -71,11 +77,8 @@ function computeBiggestUpset(db) {
 
   let upset = null;
   for (const username of Object.keys(db.users)) {
-    const userSkippedWeeks = normalizeSkippedWeeks(db.skips[username]);
-    const omittedWeeks = normalizeScoreOmissionsMap(db.scoreOmissions[username]);
-    const joinedWeek = getUserJoinedWeek(db, username);
-    if (userSkippedWeeks[week]) continue;
-    if (omittedWeeks[week] || week < joinedWeek) continue;
+    const status = getWeekScoringStatus(db, username, week);
+    if (status.skipped || status.omitted) continue;
 
     const lineup = getLineupForWeek(db, username, week);
     const activeOrder = lineup.filter((id) => !previousWeekVotedOff[id]);
@@ -126,11 +129,8 @@ function computeMostHatedLastWeek(db) {
 
   let voterCount = 0;
   for (const username of Object.keys(db.users)) {
-    const userSkippedWeeks = normalizeSkippedWeeks(db.skips[username]);
-    const omittedWeeks = normalizeScoreOmissionsMap(db.scoreOmissions[username]);
-    const joinedWeek = getUserJoinedWeek(db, username);
-    if (userSkippedWeeks[week]) continue;
-    if (omittedWeeks[week] || week < joinedWeek) continue;
+    const status = getWeekScoringStatus(db, username, week);
+    if (status.skipped || status.omitted) continue;
 
     const lineup = getLineupForWeek(db, username, week);
     const activeOrder = lineup.filter((id) => activeIds.includes(id));
@@ -199,6 +199,7 @@ function buildGamePayload(db, authenticatedUser, requestedWeek) {
   let score = null;
   let skippedWeeks = {};
   let omittedWeeks = {};
+  let scoreInclusions = {};
   let notes = {};
   let winnerPicks = [];
   let previousWeekRanks = {};
@@ -214,12 +215,14 @@ function buildGamePayload(db, authenticatedUser, requestedWeek) {
     score = computeScoreBreakdown(db, authenticatedUser.username);
     skippedWeeks = normalizeSkippedWeeks(db.skips[authenticatedUser.username]);
     omittedWeeks = normalizeScoreOmissionsMap(db.scoreOmissions[authenticatedUser.username]);
+    scoreInclusions = normalizeScoreInclusionsMap(db.scoreInclusions[authenticatedUser.username]);
   }
+  const selectedWeekStatus = authenticatedUser
+    ? getWeekScoringStatus(db, authenticatedUser.username, selectedWeek)
+    : { skipped: false, omitted: false };
 
   const canShowWeekReport = selectedWeek < db.game.currentWeek;
-  const weekReport = canShowWeekReport
-    ? (db.reports[selectedWeek] || computeWeekReport(db, selectedWeek))
-    : null;
+  const weekReport = canShowWeekReport ? computeWeekReport(db, selectedWeek) : null;
   const chat = authenticatedUser
     ? buildChatPayload(db, authenticatedUser)
     : { messages: [], userAvatarId: null };
@@ -239,8 +242,9 @@ function buildGamePayload(db, authenticatedUser, requestedWeek) {
     tribesById: normalizeTribesById(db.tribesById),
     skippedWeeks,
     omittedWeeks,
-    isSkippedWeek: Boolean(skippedWeeks[selectedWeek]),
-    isOmittedWeek: Boolean(omittedWeeks[selectedWeek]),
+    scoreInclusions,
+    isSkippedWeek: Boolean(selectedWeekStatus.skipped),
+    isOmittedWeek: Boolean(selectedWeekStatus.omitted),
     isNoScoreWeek: NO_SCORE_WEEKS.has(selectedWeek),
     isWeekLocked: selectedWeekLocked,
     weekLockAt: selectedWeekLockDate ? selectedWeekLockDate.toISOString() : null,

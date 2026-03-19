@@ -17,6 +17,7 @@ const {
   defaultWeekRecapTitle,
   ensureUserProfile,
   normalizeChatMessages,
+  normalizeScoreInclusionsMap,
   normalizeScoreOmissionsMap,
   normalizeTribeKey,
   normalizeTribesById,
@@ -305,12 +306,18 @@ async function handleAdminSetOmitScoreWeek({ event, db, authenticatedUser }) {
   if (!db.scoreOmissions[username] || typeof db.scoreOmissions[username] !== 'object') {
     db.scoreOmissions[username] = {};
   }
+  if (!db.scoreInclusions[username] || typeof db.scoreInclusions[username] !== 'object') {
+    db.scoreInclusions[username] = {};
+  }
   if (omit) {
     db.scoreOmissions[username][week] = true;
+    delete db.scoreInclusions[username][week];
   } else {
     delete db.scoreOmissions[username][week];
+    db.scoreInclusions[username][week] = true;
   }
   db.scoreOmissions[username] = normalizeScoreOmissionsMap(db.scoreOmissions[username]);
+  db.scoreInclusions[username] = normalizeScoreInclusionsMap(db.scoreInclusions[username]);
   db.reports[week] = computeWeekReport(db, week);
 
   const requestedWeek = Number(body.requestedWeek);
@@ -406,6 +413,7 @@ async function handleAdminDeleteUser({ event, db, authenticatedUser }) {
   delete db.lineups[username];
   delete db.notes[username];
   delete db.skips[username];
+  delete db.scoreInclusions[username];
   delete db.scoreOmissions[username];
   delete db.winnerPicks[username];
   delete db.profiles[username];

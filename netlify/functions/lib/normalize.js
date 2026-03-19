@@ -100,6 +100,17 @@ function normalizeScoreOmissionsMap(omissions) {
   return normalized;
 }
 
+function normalizeScoreInclusionsMap(inclusions) {
+  const normalized = {};
+  if (!inclusions || typeof inclusions !== 'object') return normalized;
+  for (const [week, value] of Object.entries(inclusions)) {
+    const weekNum = Number(week);
+    if (!Number.isInteger(weekNum) || weekNum < 1) continue;
+    normalized[weekNum] = Boolean(value);
+  }
+  return normalized;
+}
+
 function normalizeOrder(order) {
   const safeOrder = Array.isArray(order) ? order.filter((id) => CAST_IDS.includes(id)) : [];
   const missing = CAST_IDS.filter((id) => !safeOrder.includes(id));
@@ -260,6 +271,7 @@ module.exports = {
   normalizeChatMessages,
   normalizeNotesMap,
   normalizeOrder,
+  normalizeScoreInclusionsMap,
   normalizeScoreOmissionsMap,
   normalizeSkippedWeeks,
   normalizeTribeHistory,

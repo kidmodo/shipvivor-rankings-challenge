@@ -18,6 +18,7 @@ const {
   defaultVotedOff,
   ensureUserProfile,
   normalizeChatMessages,
+  normalizeScoreInclusionsMap,
   normalizeScoreOmissionsMap,
   normalizeSkippedWeeks,
   normalizeTribesById,
@@ -39,6 +40,7 @@ function createDefaultDb() {
     lineups: {},
     notes: {},
     skips: {},
+    scoreInclusions: {},
     scoreOmissions: {},
     winnerPicks: {},
     tribesById: createDefaultTribesById(),
@@ -96,6 +98,10 @@ function ensureDbShape(db) {
   }
   if (!db.scoreOmissions || typeof db.scoreOmissions !== 'object') {
     db.scoreOmissions = {};
+    changed = true;
+  }
+  if (!db.scoreInclusions || typeof db.scoreInclusions !== 'object') {
+    db.scoreInclusions = {};
     changed = true;
   }
   if (!db.winnerPicks || typeof db.winnerPicks !== 'object') {
@@ -233,6 +239,16 @@ function ensureDbShape(db) {
       const normalizedOmissions = normalizeScoreOmissionsMap(db.scoreOmissions[username]);
       if (JSON.stringify(normalizedOmissions) !== JSON.stringify(db.scoreOmissions[username])) {
         db.scoreOmissions[username] = normalizedOmissions;
+        changed = true;
+      }
+    }
+    if (!db.scoreInclusions[username] || typeof db.scoreInclusions[username] !== 'object') {
+      db.scoreInclusions[username] = {};
+      changed = true;
+    } else {
+      const normalizedInclusions = normalizeScoreInclusionsMap(db.scoreInclusions[username]);
+      if (JSON.stringify(normalizedInclusions) !== JSON.stringify(db.scoreInclusions[username])) {
+        db.scoreInclusions[username] = normalizedInclusions;
         changed = true;
       }
     }
@@ -387,6 +403,10 @@ function ensureAdminUser(db) {
       db.scoreOmissions[adminUsername] = {};
       changed = true;
     }
+    if (!db.scoreInclusions[adminUsername] || typeof db.scoreInclusions[adminUsername] !== 'object') {
+      db.scoreInclusions[adminUsername] = {};
+      changed = true;
+    }
     if (!db.notes[adminUsername] || typeof db.notes[adminUsername] !== 'object') {
       db.notes[adminUsername] = {};
       changed = true;
@@ -431,6 +451,7 @@ function ensureAdminUser(db) {
   db.lineups[adminUsername] = { 1: defaultLineup() };
   db.notes[adminUsername] = {};
   db.skips[adminUsername] = {};
+  db.scoreInclusions[adminUsername] = {};
   db.scoreOmissions[adminUsername] = {};
   db.winnerPicks[adminUsername] = {};
   db.profiles[adminUsername] = { chatAvatarId: CAST_IDS[0], birthName: '', affiliation: '' };

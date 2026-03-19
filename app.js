@@ -169,6 +169,9 @@ const state = {
   othersVotedOff: {},
   othersSkippedWeek: false,
   othersOmittedWeek: false,
+  othersNoSubmit: false,
+  othersHasSavedLineup: false,
+  othersCountedByAdmin: false,
   othersWeekReport: null,
   othersWeekCommentOfWeek: null,
   othersLoadedWeek: null,
@@ -1420,7 +1423,11 @@ function renderWeekReport() {
     const rankCells = activeIds
       .map((id) => `<td>${row.ranks?.[id] || '-'}</td>`)
       .join('');
-    const suffix = row.skipped ? '(Skipped)' : (row.omitted ? '(Omitted)' : '');
+    const suffix = row.skipped
+      ? '(Skipped)'
+      : (row.omitted
+        ? (row.noSubmit && !row.countedByAdmin ? '(No Submit / Omitted)' : '(Omitted)')
+        : (row.noSubmit && row.countedByAdmin ? '(No Submit / Counted)' : (row.savedLineup ? '(Submitted)' : '')));
     const userLabel = `${formatUserLabelHtml(row.username)}${suffix ? ` <span class="report-user-suffix">${escapeHtml(suffix)}</span>` : ''}`;
     const currentClass = state.user?.username === row.username ? ' class="report-current-user"' : '';
     return `<tr${currentClass}><th scope="row">${userLabel}</th>${rankCells}</tr>`;
@@ -1460,7 +1467,11 @@ function renderWeekReportTable(report, wrapEl, panelEl) {
     const rankCells = activeIds
       .map((id) => `<td>${row.ranks?.[id] || '-'}</td>`)
       .join('');
-    const suffix = row.skipped ? '(Skipped)' : (row.omitted ? '(Omitted)' : '');
+    const suffix = row.skipped
+      ? '(Skipped)'
+      : (row.omitted
+        ? (row.noSubmit && !row.countedByAdmin ? '(No Submit / Omitted)' : '(Omitted)')
+        : (row.noSubmit && row.countedByAdmin ? '(No Submit / Counted)' : (row.savedLineup ? '(Submitted)' : '')));
     const userLabel = `${formatUserLabelHtml(row.username)}${suffix ? ` <span class="report-user-suffix">${escapeHtml(suffix)}</span>` : ''}`;
     const currentClass = state.user?.username === row.username ? ' class="report-current-user"' : '';
     return `<tr${currentClass}><th scope="row">${userLabel}</th>${rankCells}</tr>`;
@@ -1607,6 +1618,10 @@ function renderOthersRankings() {
     othersSkipNoteEl.classList.remove('hidden');
     if (state.othersSkippedWeek) {
       othersSkipNoteEl.textContent = `${formatUserLabelText(state.othersUsername)} skipped Week ${state.othersWeek}.`;
+    } else if (state.othersNoSubmit && !state.othersCountedByAdmin) {
+      othersSkipNoteEl.textContent = `${formatUserLabelText(state.othersUsername)} did not save a Week ${state.othersWeek} lineup and is omitted from scoring.`;
+    } else if (state.othersNoSubmit && state.othersCountedByAdmin) {
+      othersSkipNoteEl.textContent = `${formatUserLabelText(state.othersUsername)} did not save a Week ${state.othersWeek} lineup, but is currently being counted by admin override.`;
     } else if (state.othersOmittedWeek) {
       othersSkipNoteEl.textContent = `${formatUserLabelText(state.othersUsername)} was omitted from Week ${state.othersWeek} scoring.`;
     } else {
@@ -1624,8 +1639,8 @@ function renderOthersRankings() {
     omitScorePanelEl.classList.remove('hidden');
     omitScoreStatusEl.textContent = state.othersOmittedWeek
       ? `${formatUserLabelText(state.othersUsername)} is currently omitted from Week ${state.othersWeek} scoring.`
-      : `${formatUserLabelText(state.othersUsername)} is currently included in Week ${state.othersWeek} scoring.`;
-    omitScoreToggleBtnEl.textContent = state.othersOmittedWeek ? 'Include In Score' : 'Omit From Score';
+      : `${formatUserLabelText(state.othersUsername)} is currently counted in Week ${state.othersWeek} scoring.`;
+    omitScoreToggleBtnEl.textContent = state.othersOmittedWeek ? 'Count In Score' : 'Omit From Score';
     omitScoreToggleBtnEl.disabled = false;
   } else {
     omitScorePanelEl.classList.add('hidden');
@@ -2024,6 +2039,9 @@ async function loadViewedUserWeek(username) {
     deriveDisplayBuckets();
     state.isSkippedWeek = Boolean(payload.isSkippedWeek);
     state.isOmittedWeek = Boolean(payload.isOmittedWeek);
+    state.othersNoSubmit = false;
+    state.othersHasSavedLineup = false;
+    state.othersCountedByAdmin = false;
     state.canEditVotedOff = false;
     state.dirty = false;
     clearMessage();
@@ -2055,6 +2073,9 @@ async function loadOthersRankingsData(week, username) {
     state.othersVotedOff = payload.votedOff || {};
     state.othersSkippedWeek = Boolean(payload.isSkippedWeek);
     state.othersOmittedWeek = Boolean(payload.isOmittedWeek);
+    state.othersNoSubmit = Boolean(payload.noSubmit);
+    state.othersHasSavedLineup = Boolean(payload.hasSavedLineup);
+    state.othersCountedByAdmin = Boolean(payload.countedByAdmin);
     state.othersWeekReport = payload.weekReport || null;
     state.othersWeekCommentOfWeek = payload.weekCommentOfWeek || null;
     state.othersLoadedWeek = weekNum;

@@ -12,7 +12,11 @@ const {
   getWeekTransition,
   hasSavedLineupForWeek
 } = require('./game');
-const { normalizeScoreOmissionsMap, normalizeSkippedWeeks } = require('./normalize');
+const {
+  normalizeScoreInclusionsMap,
+  normalizeScoreOmissionsMap,
+  normalizeSkippedWeeks
+} = require('./normalize');
 const { getBirthNameForUsername } = require('./profiles');
 
 function getScoringVersionForWeek(week) {
@@ -30,6 +34,43 @@ function roundToTenth(value) {
   const num = Number(value);
   if (!Number.isFinite(num)) return 0;
   return Math.round((num + Number.EPSILON) * 10) / 10;
+}
+
+function getWeekScoringStatus(db, username, week) {
+  if (!username || !db.users?.[username]) {
+    return {
+      savedLineup: false,
+      noScore: NO_SCORE_WEEKS.has(week),
+      skipped: false,
+      joinedLate: false,
+      explicitOmit: false,
+      explicitInclude: false,
+      noSubmit: false,
+      omitted: false
+    };
+  }
+  const joinedWeek = getUserJoinedWeek(db, username);
+  const skippedWeeks = normalizeSkippedWeeks(db.skips[username]);
+  const omittedWeeks = normalizeScoreOmissionsMap(db.scoreOmissions[username]);
+  const includedWeeks = normalizeScoreInclusionsMap(db.scoreInclusions[username]);
+  const savedLineup = hasSavedLineupForWeek(db, username, week);
+  const noScore = NO_SCORE_WEEKS.has(week);
+  const skipped = Boolean(skippedWeeks[week]);
+  const joinedLate = week < joinedWeek;
+  const explicitOmit = Boolean(omittedWeeks[week]);
+  const explicitInclude = Boolean(includedWeeks[week]);
+  const noSubmit = week >= SCALED_SCORE_START_WEEK && !savedLineup && !joinedLate;
+  const omitted = Boolean(explicitOmit || joinedLate || (noSubmit && !explicitInclude));
+  return {
+    savedLineup,
+    noScore,
+    skipped,
+    joinedLate,
+    explicitOmit,
+    explicitInclude,
+    noSubmit,
+    omitted
+  };
 }
 
 function computeLegacyWeekPoints(db, username, week) {
@@ -107,24 +148,22 @@ function computeScaledWeekPoints(db, username, week) {
 function computeScoreBreakdown(db, username) {
   let totalPoints = 0;
   const weekBreakdown = [];
-  const userSkippedWeeks = normalizeSkippedWeeks(db.skips[username]);
-  const omittedWeeks = normalizeScoreOmissionsMap(db.scoreOmissions[username]);
-  const joinedWeek = getUserJoinedWeek(db, username);
 
   for (let week = 1; week <= db.game.currentWeek; week += 1) {
-    const isSkippedWeek = Boolean(userSkippedWeeks[week]);
-    const isNoScoreWeek = NO_SCORE_WEEKS.has(week);
-    const isOmittedWeek = Boolean(omittedWeeks[week] || week < joinedWeek);
+    const status = getWeekScoringStatus(db, username, week);
     const scoringVersion = getScoringVersionForWeek(week);
 
-    if (isSkippedWeek || isNoScoreWeek || isOmittedWeek) {
+    if (status.skipped || status.noScore || status.omitted) {
       weekBreakdown.push({
         week,
         points: 0,
         scoringVersion,
-        skipped: isSkippedWeek,
-        noScore: isNoScoreWeek,
-        omitted: isOmittedWeek,
+        skipped: status.skipped,
+        noScore: status.noScore,
+        omitted: status.omitted,
+        noSubmit: status.noSubmit,
+        savedLineup: status.savedLineup,
+        countedByAdmin: status.explicitInclude,
         eliminations: []
       });
       continue;
@@ -230,5 +269,6 @@ module.exports = {
   computeLegacyWeekPoints,
   computeScaledWeekPoints,
   computeScoreBreakdown,
+  getWeekScoringStatus,
   roundToTenth
 };

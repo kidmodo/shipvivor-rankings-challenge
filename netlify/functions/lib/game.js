@@ -4,6 +4,7 @@ const {
   LOCK_ANCHOR_UTC_MS,
   LOCK_ANCHOR_WEEK,
   LOCKED_WEEK_ONE_ELIMINATIONS,
+  SCALED_SCORE_START_WEEK,
   WEEK_MS
 } = require('./constants');
 const {
@@ -163,7 +164,11 @@ function hasSavedLineupForWeek(db, username, week) {
 
 function autoOmitMissingLineupsForWeek(db, week) {
   const weekNum = Number(week);
-  if (!Number.isInteger(weekNum) || weekNum < 1 || NO_SCORE_WEEKS.has(weekNum)) return;
+  if (
+    !Number.isInteger(weekNum)
+    || weekNum < SCALED_SCORE_START_WEEK
+    || NO_SCORE_WEEKS.has(weekNum)
+  ) return;
   for (const username of Object.keys(db.users)) {
     const joinedWeek = getUserJoinedWeek(db, username);
     const skippedWeeks = normalizeSkippedWeeks(db.skips[username]);
@@ -182,6 +187,7 @@ function computeWeekReport(db, week) {
   if (!Number.isInteger(week) || week < 1 || week > db.game.currentWeek) return null;
   const priorVotedOff = week > 1 ? getEffectiveWeekVotedOff(db, week - 1) : defaultVotedOff();
   const activeIds = CAST_IDS.filter((id) => !priorVotedOff[id]);
+  const { getWeekScoringStatus } = require('./scoring');
   const rows = Object.keys(db.users)
     .sort((a, b) => a.localeCompare(b))
     .map((username) => {
@@ -191,13 +197,14 @@ function computeWeekReport(db, week) {
       for (const [index, id] of activeOrder.entries()) {
         ranks[id] = index + 1;
       }
-      const skippedWeeks = normalizeSkippedWeeks(db.skips[username]);
-      const omittedWeeks = normalizeScoreOmissionsMap(db.scoreOmissions[username]);
-      const joinedWeek = getUserJoinedWeek(db, username);
+      const status = getWeekScoringStatus(db, username, week);
       return {
         username,
-        skipped: Boolean(skippedWeeks[week]),
-        omitted: Boolean(omittedWeeks[week] || week < joinedWeek),
+        skipped: status.skipped,
+        omitted: status.omitted,
+        noSubmit: status.noSubmit,
+        savedLineup: status.savedLineup,
+        countedByAdmin: status.explicitInclude,
         ranks
       };
     });
