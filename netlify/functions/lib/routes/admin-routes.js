@@ -157,9 +157,18 @@ async function handleAdminRemoveCastTribe({ event, db, authenticatedUser }) {
   };
 }
 
-async function handleAdminAdvanceWeek({ db, authenticatedUser }) {
+async function handleAdminAdvanceWeek({ event, db, authenticatedUser }) {
   if (!requireAdmin(authenticatedUser)) {
     return { response: response(403, { ok: false, error: 'Admin access required.' }) };
+  }
+  const body = await parseBody(event);
+  const selectedWeek = Number(body.selectedWeek);
+  const expectedCurrentWeek = Number(body.expectedCurrentWeek);
+  if (Number.isInteger(selectedWeek) && selectedWeek !== db.game.currentWeek) {
+    return { response: response(400, { ok: false, error: `Switch to Week ${db.game.currentWeek} before advancing.` }) };
+  }
+  if (Number.isInteger(expectedCurrentWeek) && expectedCurrentWeek !== db.game.currentWeek) {
+    return { response: response(409, { ok: false, error: `Week changed to ${db.game.currentWeek}. Refresh before advancing again.` }) };
   }
 
   const completedWeek = db.game.currentWeek;

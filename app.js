@@ -1182,9 +1182,12 @@ function renderControls() {
   weekStatsEl.textContent = `${state.activeLineup.length} in this week's ranking | ${thisWeekVotedOff} marked voted off | ${state.eliminatedLineup.length} prior eliminated`;
 
   if (state.user?.isAdmin) {
+    const canAdvanceWeek = !state.isViewingOther && state.selectedWeek === state.currentWeek;
     advanceWeekBtnEl.classList.remove('hidden');
+    advanceWeekBtnEl.disabled = !canAdvanceWeek;
   } else {
     advanceWeekBtnEl.classList.add('hidden');
+    advanceWeekBtnEl.disabled = true;
   }
 
   const isCurrentWeek = state.selectedWeek === state.currentWeek;
@@ -2562,12 +2565,22 @@ async function adminToggleWeekCommentFromOthers(castawayId) {
 
 async function advanceWeek() {
   if (!state.user?.isAdmin) return;
+  if (state.isViewingOther || state.selectedWeek !== state.currentWeek) {
+    showMessage(`Switch to Week ${state.currentWeek} before advancing.`);
+    return;
+  }
   if (!window.confirm('Advance to the next week? This creates a new week with current voted-off players carried over.')) {
     return;
   }
 
   try {
-    const payload = await apiRequest('admin-advance-week', { method: 'POST' });
+    const payload = await apiRequest('admin-advance-week', {
+      method: 'POST',
+      data: {
+        selectedWeek: state.selectedWeek,
+        expectedCurrentWeek: state.currentWeek
+      }
+    });
     applyPayload(payload);
     showMessage(`Advanced to Week ${state.currentWeek}.`, false);
     render();

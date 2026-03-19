@@ -59,7 +59,8 @@ function getWeekScoringStatus(db, username, week) {
   const joinedLate = week < joinedWeek;
   const explicitOmit = Boolean(omittedWeeks[week]);
   const explicitInclude = Boolean(includedWeeks[week]);
-  const noSubmit = week >= SCALED_SCORE_START_WEEK && !savedLineup && !joinedLate;
+  const isCompletedWeek = Number.isInteger(week) && week < Number(db.game?.currentWeek || 1);
+  const noSubmit = isCompletedWeek && week >= SCALED_SCORE_START_WEEK && !savedLineup && !joinedLate;
   const omitted = Boolean(explicitOmit || joinedLate || (noSubmit && !explicitInclude));
   return {
     savedLineup,
