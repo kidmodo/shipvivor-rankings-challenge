@@ -214,6 +214,65 @@ function getChatLastSeenStorageKey(username) {
   return `shipvivor-chat-last-seen:${safeUsername}`;
 }
 
+function getLineupDraftStorageKey(username, week) {
+  const safeUsername = String(username || '').trim().toLowerCase();
+  const weekNum = Number(week);
+  if (!safeUsername || !Number.isInteger(weekNum) || weekNum < 1) return null;
+  return `shipvivor-lineup-draft:${safeUsername}:week:${weekNum}`;
+}
+
+function loadLineupDraft(username, week) {
+  const key = getLineupDraftStorageKey(username, week);
+  if (!key) return null;
+  const raw = localStorage.getItem(key);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeLineupDraft(username, week, draft) {
+  const key = getLineupDraftStorageKey(username, week);
+  if (!key) return;
+  if (!draft || typeof draft !== 'object') {
+    localStorage.removeItem(key);
+    return;
+  }
+  localStorage.setItem(key, JSON.stringify(draft));
+}
+
+function clearLineupDraft(username, week) {
+  const key = getLineupDraftStorageKey(username, week);
+  if (!key) return;
+  localStorage.removeItem(key);
+}
+
+function getChatDraftStorageKey(username) {
+  const safeUsername = String(username || '').trim().toLowerCase();
+  if (!safeUsername) return null;
+  return `shipvivor-chat-draft:${safeUsername}`;
+}
+
+function loadChatDraft(username) {
+  const key = getChatDraftStorageKey(username);
+  if (!key) return '';
+  return String(localStorage.getItem(key) || '');
+}
+
+function storeChatDraft(username, value) {
+  const key = getChatDraftStorageKey(username);
+  if (!key) return;
+  const text = String(value || '');
+  if (!text) {
+    localStorage.removeItem(key);
+    return;
+  }
+  localStorage.setItem(key, text);
+}
+
 function loadStoredLastSeenChatMessageId(username) {
   const key = getChatLastSeenStorageKey(username);
   if (!key) return null;
@@ -229,6 +288,45 @@ function storeLastSeenChatMessageId(username, messageId) {
     return;
   }
   localStorage.setItem(key, String(messageId));
+}
+
+function saveCurrentLineupDraft() {
+  if (!state.user || state.isViewingOther || state.selectedWeek !== state.currentWeek) return;
+  storeLineupDraft(state.user.username, state.selectedWeek, {
+    fullLineup: state.fullLineup,
+    notes: state.notes,
+    winnerPicks: state.winnerPicks,
+    updatedAt: new Date().toISOString()
+  });
+}
+
+function clearCurrentLineupDraft() {
+  if (!state.user || state.isViewingOther) return;
+  clearLineupDraft(state.user.username, state.selectedWeek);
+}
+
+function restoreCurrentLineupDraft() {
+  if (!state.user || state.isViewingOther || state.selectedWeek !== state.currentWeek) return false;
+  const draft = loadLineupDraft(state.user.username, state.selectedWeek);
+  if (!draft) return false;
+
+  const draftLineup = normalizeLineup(draft.fullLineup || state.fullLineup);
+  const draftNotes = draft.notes && typeof draft.notes === 'object' && !Array.isArray(draft.notes)
+    ? Object.fromEntries(Object.entries(draft.notes).map(([id, value]) => [id, String(value || '').slice(0, 700)]))
+    : {};
+  const draftWinnerPicks = normalizeWinnerPicks(draft.winnerPicks || []);
+  const sameLineup = JSON.stringify(draftLineup) === JSON.stringify(state.fullLineup);
+  const sameNotes = JSON.stringify(draftNotes) === JSON.stringify(state.notes || {});
+  const sameWinnerPicks = JSON.stringify(draftWinnerPicks) === JSON.stringify(state.winnerPicks || []);
+  if (sameLineup && sameNotes && sameWinnerPicks) return false;
+
+  state.fullLineup = draftLineup;
+  state.notes = draftNotes;
+  state.winnerPicks = draftWinnerPicks;
+  deriveDisplayBuckets();
+  state.dirty = true;
+  state.hasUnsavedChanges = true;
+  return true;
 }
 
 function showMessage(text, isError = true) {
@@ -889,8 +987,11 @@ function applyPayload(payload) {
     state.adminProfileDraftBirthName = getBirthName(state.adminTargetUser);
     state.adminProfileDraftAffiliation = getUserAffiliation(state.adminTargetUser);
   }
-  state.dirty = false;
-  state.hasUnsavedChanges = false;
+  const restoredLocalDraft = restoreCurrentLineupDraft();
+  if (!restoredLocalDraft) {
+    state.dirty = false;
+    state.hasUnsavedChanges = false;
+  }
   return true;
 }
 
@@ -1741,12 +1842,13 @@ function computeStandingsMovement(rows, weeks) {
   const usableWeeks = [...weeks]
     .filter((week) => Number.isInteger(week) && week !== 1)
     .sort((a, b) => a - b);
-  if (usableWeeks.length < 2) return {};
+  const scoredWeeks = usableWeeks.filter((week) => week < state.currentWeek);
+  if (scoredWeeks.length < 2) return {};
 
-  const currentWeek = usableWeeks[usableWeeks.length - 1];
-  const previousWeek = usableWeeks[usableWeeks.length - 2];
+  const currentWeek = scoredWeeks[scoredWeeks.length - 1];
+  const previousWeek = scoredWeeks[scoredWeeks.length - 2];
 
-  const computeTotalThroughWeek = (row, upToWeek) => usableWeeks
+  const computeTotalThroughWeek = (row, upToWeek) => scoredWeeks
     .filter((week) => week <= upToWeek)
     .reduce((sum, week) => sum + Number(row.weekPoints?.[week] || 0), 0);
 
@@ -1907,6 +2009,12 @@ function renderChat() {
     state.chatAvatarId = state.cast[0].id;
   }
   updateChatAvatarPreview(chatAvatarSelectEl.value);
+  if (chatInputEl && document.activeElement !== chatInputEl) {
+    const draftText = loadChatDraft(state.user.username);
+    if (chatInputEl.value !== draftText) {
+      chatInputEl.value = draftText;
+    }
+  }
 
   chatMessagesEl.innerHTML = '';
   if (!state.chatMessages.length) {
@@ -2009,6 +2117,7 @@ async function sendChatMessage(event) {
     state.chatMessages = Array.isArray(chat.messages) ? chat.messages : state.chatMessages;
     state.chatAvatarId = chat.userAvatarId || state.chatAvatarId;
     chatInputEl.value = '';
+    storeChatDraft(state.user.username, '');
     markChatAsSeen();
     renderChat();
     await fetchChatData(true);
@@ -2249,6 +2358,11 @@ async function handleLogout() {
 function setDirty(value) {
   state.dirty = value;
   state.hasUnsavedChanges = value;
+  if (value) {
+    saveCurrentLineupDraft();
+  } else {
+    clearCurrentLineupDraft();
+  }
   updateSaveState();
 }
 
@@ -2384,6 +2498,7 @@ async function saveLineup() {
         winnerPicks: state.winnerPicks
       }
     });
+    clearCurrentLineupDraft();
     applyPayload(payload);
     showMessage(`Week ${state.selectedWeek} lineup saved.`, false);
     render();
@@ -2847,6 +2962,11 @@ weekSelectEl.addEventListener('change', async (event) => {
       weekSelectEl.value = String(state.selectedWeek);
       return;
     }
+    if (state.dirty) {
+      clearCurrentLineupDraft();
+      state.dirty = false;
+      state.hasUnsavedChanges = false;
+    }
     if (hasUnsavedWeekRecapDraft()) {
       closeWeekRecapEditor(true);
     }
@@ -2898,6 +3018,9 @@ viewUserSelectEl.addEventListener('change', async (event) => {
 saveChatAvatarBtnEl.addEventListener('click', saveChatAvatar);
 refreshChatBtnEl.addEventListener('click', () => fetchChatData());
 chatFormEl.addEventListener('submit', sendChatMessage);
+chatInputEl.addEventListener('input', (event) => {
+  storeChatDraft(state.user?.username, event.target.value || '');
+});
 chatAvatarSelectEl.addEventListener('change', (event) => {
   updateChatAvatarPreview(event.target.value);
 });
