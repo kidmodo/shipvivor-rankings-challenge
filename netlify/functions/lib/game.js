@@ -199,6 +199,7 @@ function computeWeekReport(db, week) {
         ranks[id] = index + 1;
       }
       const status = getWeekScoringStatus(db, username, week);
+      if (status.noSubmit) return null;
       return {
         username,
         skipped: status.skipped,
@@ -208,7 +209,8 @@ function computeWeekReport(db, week) {
         countedByAdmin: status.explicitInclude,
         ranks
       };
-    });
+    })
+    .filter(Boolean);
 
   return {
     week,

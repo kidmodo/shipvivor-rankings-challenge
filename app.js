@@ -208,6 +208,29 @@ const state = {
   loading: false
 };
 
+function getChatLastSeenStorageKey(username) {
+  const safeUsername = String(username || '').trim().toLowerCase();
+  if (!safeUsername) return null;
+  return `shipvivor-chat-last-seen:${safeUsername}`;
+}
+
+function loadStoredLastSeenChatMessageId(username) {
+  const key = getChatLastSeenStorageKey(username);
+  if (!key) return null;
+  const value = localStorage.getItem(key);
+  return value ? String(value) : null;
+}
+
+function storeLastSeenChatMessageId(username, messageId) {
+  const key = getChatLastSeenStorageKey(username);
+  if (!key) return;
+  if (!messageId) {
+    localStorage.removeItem(key);
+    return;
+  }
+  localStorage.setItem(key, String(messageId));
+}
+
 function showMessage(text, isError = true) {
   authMessageEl.textContent = text || '';
   authMessageEl.style.color = isError ? '#6f2117' : '#145035';
@@ -502,16 +525,14 @@ function updateUnreadChatState() {
     state.unreadChatCount = 0;
     if (state.activeTab === 'chat') {
       state.lastSeenChatMessageId = null;
+      storeLastSeenChatMessageId(state.user?.username, null);
     }
     return;
   }
   if (!state.lastSeenChatMessageId) {
-    if (state.activeTab === 'chat') {
-      state.lastSeenChatMessageId = latestId;
-      state.unreadChatCount = 0;
-    } else {
-      state.unreadChatCount = countUnreadMessages(state.chatMessages, state.lastSeenChatMessageId);
-    }
+    state.lastSeenChatMessageId = latestId;
+    storeLastSeenChatMessageId(state.user?.username, latestId);
+    state.unreadChatCount = 0;
     return;
   }
   const unreadCount = countUnreadMessages(state.chatMessages, state.lastSeenChatMessageId);
@@ -520,6 +541,7 @@ function updateUnreadChatState() {
     state.unreadChatCount = state.activeTab === 'chat' ? 0 : unreadCount;
     if (state.activeTab === 'chat') {
       state.lastSeenChatMessageId = latestId;
+      storeLastSeenChatMessageId(state.user?.username, latestId);
     }
     return;
   }
@@ -530,6 +552,7 @@ function markChatAsSeen() {
   const latestId = getLatestChatMessageId();
   if (!latestId) return;
   state.lastSeenChatMessageId = latestId;
+  storeLastSeenChatMessageId(state.user?.username, latestId);
   state.unreadChatCount = 0;
   renderChatUnreadBadge();
 }
@@ -764,8 +787,13 @@ function applyPayload(payload) {
   if (payload.unchanged) return false;
 
   const hadLocalWeekRecapDraft = hasUnsavedWeekRecapDraft();
+  const previousUsername = state.user?.username || null;
 
   state.user = payload.user || null;
+  if (state.user?.username !== previousUsername) {
+    state.lastSeenChatMessageId = loadStoredLastSeenChatMessageId(state.user?.username);
+    state.unreadChatCount = 0;
+  }
   state.cast = Array.isArray(payload.cast) ? payload.cast : [];
   state.castMap = new Map(state.cast.map((castaway) => [castaway.id, castaway]));
   const payloadCurrentWeek = Number(payload.currentWeek || 1);
