@@ -11,6 +11,25 @@ function response(statusCode, payload) {
   };
 }
 
+function parseExpectedRevision(body) {
+  const value = Number(body?.expectedRevision);
+  if (!Number.isInteger(value) || value < 0) return null;
+  return value;
+}
+
+function getRevisionConflictResponse(db, expectedRevision) {
+  if (!Number.isInteger(expectedRevision) || expectedRevision < 0) return null;
+  const currentRevision = Number(db?.meta?.revision || 0);
+  if (expectedRevision === currentRevision) return null;
+  return response(409, {
+    ok: false,
+    error: 'Someone else updated the app. Reload and try again.',
+    conflict: true,
+    currentRevision,
+    lastMutationAt: db?.meta?.lastMutationAt || null
+  });
+}
+
 async function parseBody(event) {
   if (!event.body) return {};
   try {
@@ -30,6 +49,8 @@ function emptyResponse(statusCode, headers = {}) {
 
 module.exports = {
   emptyResponse,
+  getRevisionConflictResponse,
   parseBody,
+  parseExpectedRevision,
   response
 };

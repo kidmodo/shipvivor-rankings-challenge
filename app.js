@@ -233,15 +233,25 @@ function setToken(token) {
 async function apiRequest(action, { method = 'GET', params = {}, data = null } = {}) {
   const requestSeq = ++state.requestCounter;
   const url = buildApiUrl(action, params);
+  const upperMethod = String(method || 'GET').toUpperCase();
+  const requestData = (
+    data
+    && typeof data === 'object'
+    && !Array.isArray(data)
+    && upperMethod !== 'GET'
+    && upperMethod !== 'HEAD'
+  )
+    ? { ...data, expectedRevision: data.expectedRevision ?? state.revision }
+    : data;
 
   const headers = { 'content-type': 'application/json' };
   if (state.token) headers.authorization = `Bearer ${state.token}`;
 
   const response = await fetch(url.toString(), {
-    method,
+    method: upperMethod,
     cache: 'no-store',
     headers,
-    body: data ? JSON.stringify(data) : null
+    body: requestData ? JSON.stringify(requestData) : null
   });
 
   if (response.status === 304) {
@@ -255,6 +265,7 @@ async function apiRequest(action, { method = 'GET', params = {}, data = null } =
   if (!response.ok || payload.ok === false) {
     const error = new Error(payload.error || `Request failed (${response.status})`);
     error.status = response.status;
+    error.payload = payload;
     throw error;
   }
 
@@ -308,6 +319,21 @@ function consumePayloadMeta(payload) {
   if (requestSeq > state.lastAppliedRequestSeq) {
     state.lastAppliedRequestSeq = requestSeq;
   }
+  return true;
+}
+
+async function handleConflictError(error, { reloadWeek = state.selectedWeek, refreshChat = true } = {}) {
+  if (!error || error.status !== 409) return false;
+  if (error.payload && typeof error.payload === 'object') {
+    consumePayloadMeta(error.payload);
+  }
+  if (state.user) {
+    await loadGame(reloadWeek, true, 0);
+    if (refreshChat) {
+      await fetchChatData(true);
+    }
+  }
+  showMessage(error.message || 'Someone else updated the app. Reload and try again.');
   return true;
 }
 
@@ -1564,7 +1590,6 @@ function renderOthersRankingsList() {
 function renderOthersRankings() {
   if (!othersWeekSelectEl || !viewUserSelectEl) return;
   const completedWeeks = state.weeks.filter((week) => week > 1 && week < state.currentWeek);
-  const userOptions = state.allUsers.filter((username) => username !== state.user?.username);
 
   othersWeekSelectEl.replaceChildren();
   completedWeeks.forEach((week) => {
@@ -1574,14 +1599,7 @@ function renderOthersRankings() {
     othersWeekSelectEl.appendChild(option);
   });
   viewUserSelectEl.replaceChildren();
-  userOptions.forEach((username) => {
-    const option = document.createElement('option');
-    option.value = username;
-    option.textContent = formatUserLabelText(username);
-    viewUserSelectEl.appendChild(option);
-  });
-
-  if (!completedWeeks.length || !userOptions.length) {
+  if (!completedWeeks.length) {
     renderWeekReportTable(null, weekReportWrapEl, weekReportPanelEl);
     if (othersRankingsStatsEl) othersRankingsStatsEl.textContent = 'No completed weeks or other users yet.';
     if (othersSkipNoteEl) {
@@ -1598,11 +1616,50 @@ function renderOthersRankings() {
   if (!completedWeeks.includes(state.othersWeek)) {
     state.othersWeek = completedWeeks[completedWeeks.length - 1];
   }
+  const userOptions = getOthersUserOptionsForWeek(state.othersWeek);
+  userOptions.forEach((username) => {
+    const option = document.createElement('option');
+    option.value = username;
+    option.textContent = formatUserLabelText(username);
+    viewUserSelectEl.appendChild(option);
+  });
   if (!state.othersUsername || !userOptions.includes(state.othersUsername)) {
-    state.othersUsername = userOptions[0];
+    state.othersUsername = userOptions[0] || null;
   }
   othersWeekSelectEl.value = String(state.othersWeek);
-  viewUserSelectEl.value = state.othersUsername;
+  viewUserSelectEl.disabled = !userOptions.length;
+  if (state.othersUsername) {
+    viewUserSelectEl.value = state.othersUsername;
+  }
+
+  if (!userOptions.length) {
+    renderWeekReportTable(null, weekReportWrapEl, weekReportPanelEl);
+    state.othersLineup = [];
+    state.othersNotes = {};
+    state.othersPriorVotedOff = {};
+    state.othersVotedOff = {};
+    state.othersSkippedWeek = false;
+    state.othersOmittedWeek = false;
+    state.othersNoSubmit = false;
+    state.othersHasSavedLineup = false;
+    state.othersCountedByAdmin = false;
+    state.othersWeekReport = null;
+    state.othersWeekCommentOfWeek = null;
+    state.othersLoadedWeek = null;
+    state.othersLoadedUsername = null;
+    if (othersRankingsStatsEl) {
+      othersRankingsStatsEl.textContent = `Week ${state.othersWeek} has no saved lineups from other users.`;
+    }
+    if (othersSkipNoteEl) {
+      othersSkipNoteEl.classList.remove('hidden');
+      othersSkipNoteEl.textContent = 'Only users who actually saved a lineup appear here.';
+    }
+    if (othersRankListEl) {
+      othersRankListEl.innerHTML = '<li class="cast-card"><div class="card-main"><div class="name">No submitted lineups for this week.</div></div></li>';
+    }
+    omitScorePanelEl.classList.add('hidden');
+    return;
+  }
 
   if (
     !state.othersLineup.length
@@ -1693,6 +1750,14 @@ function computeStandingsMovement(rows, weeks) {
   }
 
   return movement;
+}
+
+function getOthersUserOptionsForWeek(week) {
+  if (!Number.isInteger(week)) return [];
+  const rows = Array.isArray(state.fullStandings?.rows) ? state.fullStandings.rows : [];
+  return rows
+    .filter((row) => row.username !== state.user?.username && Boolean(row.savedWeeks?.[week]))
+    .map((row) => row.username);
 }
 
 function renderFullStandings() {
@@ -1894,6 +1959,7 @@ async function saveChatAvatar() {
     showMessage('Chat avatar updated.', false);
     renderChat();
   } catch (error) {
+    if (await handleConflictError(error, { refreshChat: true })) return;
     showMessage(error.message || 'Failed to update chat avatar.');
   }
 }
@@ -1919,6 +1985,7 @@ async function sendChatMessage(event) {
     renderChat();
     await fetchChatData(true);
   } catch (error) {
+    if (await handleConflictError(error, { refreshChat: true })) return;
     showMessage(error.message || 'Failed to send chat message.');
   } finally {
     sendChatBtnEl.disabled = false;
@@ -2293,6 +2360,7 @@ async function saveLineup() {
     showMessage(`Week ${state.selectedWeek} lineup saved.`, false);
     render();
   } catch (error) {
+    if (await handleConflictError(error, { refreshChat: false })) return;
     showMessage(error.message || 'Failed to save lineup.');
   }
 }
@@ -2331,6 +2399,7 @@ async function toggleSkipWeek() {
     showMessage(`Week ${state.selectedWeek} ${actionWord}ped.`, false);
     render();
   } catch (error) {
+    if (await handleConflictError(error, { refreshChat: false })) return;
     showMessage(error.message || 'Failed to update skip setting.');
   }
 }
@@ -2354,6 +2423,7 @@ async function onAdminVotedOffChange(event) {
     showMessage(`Updated voted-off status for Week ${state.selectedWeek}.`, false);
     render();
   } catch (error) {
+    if (await handleConflictError(error, { refreshChat: false })) return;
     showMessage(error.message || 'Failed to update voted-off status.');
     render();
   }
@@ -2393,6 +2463,7 @@ async function adminSetCastawayTribe(castawayId) {
     showMessage(`${castaway.name} active tribe set to ${tribeKey.toUpperCase()}.`, false);
     render();
   } catch (error) {
+    if (await handleConflictError(error, { refreshChat: false })) return;
     showMessage(error.message || 'Failed to update active tribe.');
   } finally {
     state.tribeUpdateInFlight = false;
@@ -2432,6 +2503,7 @@ async function adminToggleOmitScoreWeek() {
     state.othersOmittedWeek = nextOmit;
     await loadOthersRankingsData(targetWeek, targetUsername);
   } catch (error) {
+    if (await handleConflictError(error, { reloadWeek: targetWeek, refreshChat: false })) return;
     showMessage(error.message || 'Failed to update omit score setting.');
   } finally {
     omitScoreToggleBtnEl.disabled = false;
@@ -2471,6 +2543,7 @@ async function adminRemoveCastawayTribe(castawayId, tribeIndex) {
     showMessage(`Removed ${label} from ${castaway.name}'s tribe history.`, false);
     render();
   } catch (error) {
+    if (await handleConflictError(error, { refreshChat: false })) return;
     showMessage(error.message || 'Failed to remove tribe.');
   } finally {
     state.tribeUpdateInFlight = false;
@@ -2516,6 +2589,7 @@ async function adminToggleWeekComment(castawayId) {
       false
     );
   } catch (error) {
+    if (await handleConflictError(error, { reloadWeek: state.selectedWeek, refreshChat: false })) return;
     showMessage(error.message || 'Failed to update comment of the week.');
   }
 }
@@ -2559,6 +2633,7 @@ async function adminToggleWeekCommentFromOthers(castawayId) {
       false
     );
   } catch (error) {
+    if (await handleConflictError(error, { reloadWeek: week, refreshChat: false })) return;
     showMessage(error.message || 'Failed to update comment of the week.');
   }
 }
@@ -2585,6 +2660,7 @@ async function advanceWeek() {
     showMessage(`Advanced to Week ${state.currentWeek}.`, false);
     render();
   } catch (error) {
+    if (await handleConflictError(error, { refreshChat: false })) return;
     showMessage(error.message || 'Failed to advance week.');
   }
 }
@@ -2612,6 +2688,7 @@ async function saveWeekRecap() {
     showMessage(`Week ${state.currentWeek} recap saved.`, false);
     if (applied) render();
   } catch (error) {
+    if (await handleConflictError(error, { refreshChat: false })) return;
     showMessage(error.message || 'Failed to save week recap.');
   } finally {
     saveWeekRecapBtnEl.disabled = false;
@@ -2635,6 +2712,7 @@ async function adminChangeUserPassword() {
     showMessage(`Password updated for ${state.adminTargetUser}.`, false);
     render();
   } catch (error) {
+    if (await handleConflictError(error, { refreshChat: false })) return;
     showMessage(error.message || 'Failed to update password.');
   }
 }
@@ -2668,6 +2746,7 @@ async function adminSaveUserProfile() {
       renderAdminUserPanel();
     }
   } catch (error) {
+    if (await handleConflictError(error, { refreshChat: false })) return;
     showMessage(error.message || 'Failed to save user profile.');
   } finally {
     state.birthNameUpdateInFlight = false;
@@ -2689,6 +2768,7 @@ async function adminDeleteUser() {
     showMessage(`Deleted user ${removedUsername}.`, false);
     render();
   } catch (error) {
+    if (await handleConflictError(error, { refreshChat: false })) return;
     showMessage(error.message || 'Failed to delete user.');
   }
 }

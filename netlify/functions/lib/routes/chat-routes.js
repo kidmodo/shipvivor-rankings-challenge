@@ -1,7 +1,13 @@
 const crypto = require('node:crypto');
 
 const { MAX_CHAT_MESSAGES } = require('../constants');
-const { emptyResponse, parseBody, response } = require('../http');
+const {
+  emptyResponse,
+  getRevisionConflictResponse,
+  parseBody,
+  parseExpectedRevision,
+  response
+} = require('../http');
 const { buildChatPayload } = require('../payloads');
 const { ensureUserProfile, normalizeChatMessages, normalizeAvatarId, sanitizeChatMessage } = require('../normalize');
 
@@ -17,6 +23,8 @@ async function handleChatList({ event, db, authenticatedUser }) {
 
 async function handleSetChatAvatar({ event, db, authenticatedUser }) {
   const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
   const avatarId = normalizeAvatarId(body.avatarId);
   ensureUserProfile(db, authenticatedUser.username).chatAvatarId = avatarId;
 
@@ -28,6 +36,8 @@ async function handleSetChatAvatar({ event, db, authenticatedUser }) {
 
 async function handleSendChatMessage({ event, db, authenticatedUser }) {
   const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
   if (typeof body.message !== 'string') {
     return { response: response(400, { ok: false, error: 'Message must be a string.' }) };
   }

@@ -12,7 +12,12 @@ const {
   getNotesForWeek,
   propagateVotedOffForward
 } = require('../game');
-const { parseBody, response } = require('../http');
+const {
+  getRevisionConflictResponse,
+  parseBody,
+  parseExpectedRevision,
+  response
+} = require('../http');
 const {
   defaultWeekRecapTitle,
   ensureUserProfile,
@@ -51,6 +56,8 @@ async function handleAdminUpdateVotedOff({ event, db, authenticatedUser }) {
   }
 
   const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
   const week = Number(body.week);
   if (!validateCurrentWeek(db, week)) {
     return { response: response(400, { ok: false, error: 'Invalid week.' }) };
@@ -81,6 +88,8 @@ async function handleAdminUpdateCastTribe({ event, db, authenticatedUser }) {
   }
 
   const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
   const castawayId = String(body.castawayId || '').trim();
   if (!CAST_IDS.includes(castawayId)) {
     return { response: response(400, { ok: false, error: 'Invalid castaway.' }) };
@@ -119,6 +128,8 @@ async function handleAdminRemoveCastTribe({ event, db, authenticatedUser }) {
   }
 
   const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
   const castawayId = String(body.castawayId || '').trim();
   if (!CAST_IDS.includes(castawayId)) {
     return { response: response(400, { ok: false, error: 'Invalid castaway.' }) };
@@ -162,6 +173,8 @@ async function handleAdminAdvanceWeek({ event, db, authenticatedUser }) {
     return { response: response(403, { ok: false, error: 'Admin access required.' }) };
   }
   const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
   const selectedWeek = Number(body.selectedWeek);
   const expectedCurrentWeek = Number(body.expectedCurrentWeek);
   if (Number.isInteger(selectedWeek) && selectedWeek !== db.game.currentWeek) {
@@ -193,6 +206,8 @@ async function handleAdminJumpWeek({ event, db, authenticatedUser }) {
     return { response: response(403, { ok: false, error: 'Admin access required.' }) };
   }
   const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
   const requestedWeek = Number(body.week);
   if (!Number.isInteger(requestedWeek) || requestedWeek < 1) {
     return { response: response(400, { ok: false, error: 'Invalid week.' }) };
@@ -212,6 +227,8 @@ async function handleAdminUpdateWeekRecap({ event, db, authenticatedUser }) {
   }
 
   const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
   const week = Number(body.week);
   if (!validateCurrentWeek(db, week)) {
     return { response: response(400, { ok: false, error: 'Invalid week.' }) };
@@ -233,6 +250,8 @@ async function handleAdminSetWeekComment({ event, db, authenticatedUser }) {
   }
 
   const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
   const week = Number(body.week);
   const enabled = body.enabled !== undefined ? Boolean(body.enabled) : true;
 
@@ -292,6 +311,8 @@ async function handleAdminSetOmitScoreWeek({ event, db, authenticatedUser }) {
   }
 
   const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
   const username = normalizeUsername(body.username);
   const week = Number(body.week);
   const omit = Boolean(body.omit);
@@ -346,6 +367,8 @@ async function handleAdminSetBirthName({ event, db, authenticatedUser }) {
   }
 
   const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
   const username = normalizeUsername(body.username);
   if (!validateExistingUser(db, username)) {
     return { response: response(404, { ok: false, error: 'User not found.' }) };
@@ -365,6 +388,8 @@ async function handleAdminUpdateUserProfile({ event, db, authenticatedUser }) {
   }
 
   const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
   const username = normalizeUsername(body.username);
   if (!validateExistingUser(db, username)) {
     return { response: response(404, { ok: false, error: 'User not found.' }) };
@@ -386,6 +411,8 @@ async function handleAdminUpdateUserPassword({ event, db, authenticatedUser }) {
   }
 
   const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
   const username = normalizeUsername(body.username);
   const password = body.password;
   if (!validateExistingUser(db, username)) {
@@ -410,6 +437,8 @@ async function handleAdminDeleteUser({ event, db, authenticatedUser }) {
   }
 
   const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
   const username = normalizeUsername(body.username);
   if (!validateExistingUser(db, username)) {
     return { response: response(404, { ok: false, error: 'User not found.' }) };

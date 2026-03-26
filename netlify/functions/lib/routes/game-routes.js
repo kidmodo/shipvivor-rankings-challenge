@@ -11,7 +11,13 @@ const {
   getWinnerPicksForWeek,
   isWeekLocked
 } = require('../game');
-const { emptyResponse, parseBody, response } = require('../http');
+const {
+  emptyResponse,
+  getRevisionConflictResponse,
+  parseBody,
+  parseExpectedRevision,
+  response
+} = require('../http');
 const {
   defaultVotedOff,
   normalizeNotesMap,
@@ -79,6 +85,8 @@ async function handleGame({ event, db, authenticatedUser, needsSave }) {
 
 async function handleSaveLineup({ event, db, authenticatedUser }) {
   const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
   const week = Number(body.week);
   if (!validateWeekInRange(db, week)) {
     return { response: response(400, { ok: false, error: 'Invalid week.' }) };
@@ -131,6 +139,8 @@ async function handleSaveLineup({ event, db, authenticatedUser }) {
 
 async function handleSetSkipWeek({ event, db, authenticatedUser }) {
   const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
   const week = Number(body.week);
   if (!validateWeekInRange(db, week)) {
     return { response: response(400, { ok: false, error: 'Invalid week.' }) };
