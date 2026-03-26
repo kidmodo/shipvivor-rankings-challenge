@@ -31,8 +31,10 @@ const CASTAWAYS = [
 const CAST_IDS = CASTAWAYS.map((castaway) => castaway.id);
 const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
 const LOCAL_DB_PATH = path.join(os.tmpdir(), 'shipvivor-local-db.json');
+const LOCAL_BACKGROUND_IMAGE_PATH = path.join(os.tmpdir(), 'shipvivor-background-image.txt');
 const BLOB_STORE_NAME = 'shipvivor-db';
 const BLOB_STATE_KEY = 'state';
+const BACKGROUND_IMAGE_BLOB_KEY_PREFIX = 'background-image-v';
 const NO_SCORE_WEEKS = new Set([1]);
 const LEGACY_SCORE_WEEK = 2;
 const SCALED_SCORE_START_WEEK = 3;
@@ -79,12 +81,14 @@ const DEFAULT_TRIBE_BY_ID = {
 
 module.exports = {
   BLOB_STATE_KEY,
+  BACKGROUND_IMAGE_BLOB_KEY_PREFIX,
   BLOB_STORE_NAME,
   CASTAWAYS,
   CAST_IDS,
   DEFAULT_TRIBE_BY_ID,
   LEGACY_SCORE_WEEK,
   LOCAL_DB_PATH,
+  LOCAL_BACKGROUND_IMAGE_PATH,
   LOCK_ANCHOR_UTC_MS,
   LOCK_ANCHOR_WEEK,
   LOCKED_WEEK_ONE_ELIMINATIONS,

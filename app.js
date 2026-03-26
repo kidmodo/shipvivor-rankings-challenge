@@ -8,6 +8,7 @@ import { downloadBlob } from './js/utils.js';
 
 const TOKEN_KEY = 'shipvivor-token';
 const LAST_KNOWN_WEEK_KEY = 'shipvivor-last-known-week';
+const DEFAULT_BACKGROUND_IMAGE = './assets/ui/bg-tile.jpg';
 const TRIBE_META = {
   vatu: { key: 'vatu', name: 'Vatu' },
   cila: { key: 'cila', name: 'Cila' },
@@ -68,6 +69,15 @@ const adminSaveUserProfileBtnEl = document.getElementById('adminSaveUserProfileB
 const adminResetPasswordBtnEl = document.getElementById('adminResetPasswordBtn');
 const adminExportDbBtnEl = document.getElementById('adminExportDbBtn');
 const adminDeleteUserBtnEl = document.getElementById('adminDeleteUserBtn');
+const adminBackgroundPanelEl = document.getElementById('adminBackgroundPanel');
+const adminBackgroundFileInputEl = document.getElementById('adminBackgroundFileInput');
+const adminBackgroundStatusEl = document.getElementById('adminBackgroundStatus');
+const adminBackgroundTileWidthInputEl = document.getElementById('adminBackgroundTileWidthInput');
+const adminBackgroundTileHeightInputEl = document.getElementById('adminBackgroundTileHeightInput');
+const adminBackgroundOpacityInputEl = document.getElementById('adminBackgroundOpacityInput');
+const adminBackgroundOpacityValueEl = document.getElementById('adminBackgroundOpacityValue');
+const adminSaveBackgroundBtnEl = document.getElementById('adminSaveBackgroundBtn');
+const adminResetBackgroundBtnEl = document.getElementById('adminResetBackgroundBtn');
 
 const appPanelEl = document.getElementById('appPanel');
 const saveStatusBannerEl = document.getElementById('saveStatusBanner');
@@ -195,6 +205,8 @@ const state = {
   biggestUpset: null,
   mostHated: null,
   myScore: null,
+  backgroundConfig: { tileWidth: 280, tileHeight: 160, overlayOpacity: 0.55, hasCustomImage: false, imageVersion: 0 },
+  backgroundImageUrl: null,
   canEditVotedOff: false,
   tribeUpdateInFlight: false,
   birthNameUpdateInFlight: false,
@@ -271,6 +283,24 @@ function storeChatDraft(username, value) {
     return;
   }
   localStorage.setItem(key, text);
+}
+
+function getBackgroundImageCacheKey(version) {
+  const versionNum = Number(version);
+  if (!Number.isInteger(versionNum) || versionNum < 1) return null;
+  return `shipvivor-background-image:${versionNum}`;
+}
+
+function loadCachedBackgroundImage(version) {
+  const key = getBackgroundImageCacheKey(version);
+  if (!key) return '';
+  return String(localStorage.getItem(key) || '');
+}
+
+function storeCachedBackgroundImage(version, dataUrl) {
+  const key = getBackgroundImageCacheKey(version);
+  if (!key || !dataUrl) return;
+  localStorage.setItem(key, dataUrl);
 }
 
 function loadStoredLastSeenChatMessageId(username) {
@@ -456,6 +486,71 @@ async function handleConflictError(error, { reloadWeek = state.selectedWeek, ref
   }
   showMessage(error.message || 'Someone else updated the app. Reload and try again.');
   return true;
+}
+
+function normalizeBackgroundConfigClient(config) {
+  const source = config && typeof config === 'object' ? config : {};
+  const tileWidth = Math.max(120, Math.min(640, Math.round(Number(source.tileWidth) || 280)));
+  const tileHeight = Math.max(80, Math.min(420, Math.round(Number(source.tileHeight) || 160)));
+  const overlayOpacity = Math.max(0.1, Math.min(0.9, Number(source.overlayOpacity) || 0.55));
+  const imageVersion = Number(source.imageVersion);
+  return {
+    tileWidth,
+    tileHeight,
+    overlayOpacity: Math.round(overlayOpacity * 100) / 100,
+    hasCustomImage: Boolean(source.hasCustomImage),
+    imageVersion: Number.isInteger(imageVersion) && imageVersion >= 0 ? imageVersion : 0
+  };
+}
+
+function applyBackgroundAppearance() {
+  const root = document.documentElement;
+  const config = normalizeBackgroundConfigClient(state.backgroundConfig);
+  const imageUrl = state.backgroundImageUrl || DEFAULT_BACKGROUND_IMAGE;
+  const blurWidth = Math.max(80, Math.round(config.tileWidth * 0.89));
+  const blurHeight = Math.max(60, Math.round(config.tileHeight * 0.91));
+  const cssUrl = `url("${String(imageUrl).replace(/"/g, '\\"')}")`;
+  root.style.setProperty('--app-bg-image', cssUrl);
+  root.style.setProperty('--app-bg-size-main', `${config.tileWidth}px ${config.tileHeight}px`);
+  root.style.setProperty('--app-bg-size-blur', `${blurWidth}px ${blurHeight}px`);
+  root.style.setProperty('--app-bg-overlay-opacity', String(config.overlayOpacity));
+}
+
+async function ensureBackgroundImageLoaded() {
+  const config = normalizeBackgroundConfigClient(state.backgroundConfig);
+  state.backgroundConfig = config;
+  if (!config.hasCustomImage || config.imageVersion < 1) {
+    state.backgroundImageUrl = null;
+    applyBackgroundAppearance();
+    return;
+  }
+
+  const cached = loadCachedBackgroundImage(config.imageVersion);
+  if (cached) {
+    state.backgroundImageUrl = cached;
+    applyBackgroundAppearance();
+    return;
+  }
+
+  try {
+    const url = buildApiUrl('background-image', { version: config.imageVersion });
+    const response = await fetch(url.toString(), { method: 'GET', cache: 'force-cache' });
+    if (!response.ok) {
+      state.backgroundImageUrl = null;
+      applyBackgroundAppearance();
+      return;
+    }
+    const dataUrl = await response.text();
+    if (dataUrl) {
+      state.backgroundImageUrl = dataUrl;
+      storeCachedBackgroundImage(config.imageVersion, dataUrl);
+    } else {
+      state.backgroundImageUrl = null;
+    }
+  } catch {
+    state.backgroundImageUrl = null;
+  }
+  applyBackgroundAppearance();
 }
 
 function normalizeLineup(lineup) {
@@ -964,6 +1059,7 @@ function applyPayload(payload) {
   state.biggestUpset = payload.biggestUpset || null;
   state.mostHated = payload.mostHated || payload.lowestRankedActive || null;
   state.myScore = payload.myScore || null;
+  state.backgroundConfig = normalizeBackgroundConfigClient(payload.backgroundConfig || state.backgroundConfig);
   state.weekRecapWeek = Number(payload.weekRecapWeek || state.selectedWeek || state.currentWeek || 1);
   state.weekRecapTitle = String(payload.weekRecapTitle || `Week ${state.weekRecapWeek} Recap`);
   state.weekRecap = String(payload.weekRecap || '');
@@ -992,6 +1088,7 @@ function applyPayload(payload) {
     state.dirty = false;
     state.hasUnsavedChanges = false;
   }
+  void ensureBackgroundImageLoaded();
   return true;
 }
 
@@ -1041,6 +1138,7 @@ function renderLeaderboard() {
   if (!state.leaderboard.length) {
     leaderboardListEl.innerHTML = '<li class="leaderboard-empty">No players yet.</li>';
     renderAdminUserPanel();
+    renderAdminBackgroundPanel();
     return;
   }
 
@@ -1082,6 +1180,7 @@ function renderLeaderboard() {
     leaderboardListEl.appendChild(li);
   });
   renderAdminUserPanel();
+  renderAdminBackgroundPanel();
 }
 
 function setAdminTargetUser(username) {
@@ -1125,6 +1224,106 @@ function renderAdminUserPanel() {
   }
   if (adminSaveUserProfileBtnEl) {
     adminSaveUserProfileBtnEl.disabled = !state.adminProfileDraftDirty;
+  }
+}
+
+function renderAdminBackgroundPanel() {
+  const isAdmin = hasAdminAccess(state.user);
+  if (!adminBackgroundPanelEl) return;
+  setElementHidden(adminBackgroundPanelEl, !isAdmin);
+  if (!isAdmin) return;
+
+  const config = normalizeBackgroundConfigClient(state.backgroundConfig);
+  if (adminBackgroundTileWidthInputEl && document.activeElement !== adminBackgroundTileWidthInputEl) {
+    adminBackgroundTileWidthInputEl.value = String(config.tileWidth);
+  }
+  if (adminBackgroundTileHeightInputEl && document.activeElement !== adminBackgroundTileHeightInputEl) {
+    adminBackgroundTileHeightInputEl.value = String(config.tileHeight);
+  }
+  if (adminBackgroundOpacityInputEl && document.activeElement !== adminBackgroundOpacityInputEl) {
+    adminBackgroundOpacityInputEl.value = String(config.overlayOpacity);
+  }
+  if (adminBackgroundOpacityValueEl) {
+    adminBackgroundOpacityValueEl.textContent = `Current opacity: ${Math.round(config.overlayOpacity * 100)}%`;
+  }
+  if (adminBackgroundStatusEl) {
+    const fileName = adminBackgroundFileInputEl?.files?.[0]?.name;
+    adminBackgroundStatusEl.textContent = fileName
+      ? `Selected file: ${fileName}`
+      : (config.hasCustomImage ? `Custom background active (version ${config.imageVersion}).` : 'Using default site background.');
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(new Error('Failed to read background image.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function adminSaveBackgroundSettings() {
+  if (!hasAdminAccess(state.user)) return;
+  const file = adminBackgroundFileInputEl?.files?.[0] || null;
+  if (file && file.size > 2 * 1024 * 1024) {
+    showMessage('Background image must be 2 MB or smaller.');
+    return;
+  }
+
+  let imageDataUrl = '';
+  if (file) {
+    try {
+      imageDataUrl = await readFileAsDataUrl(file);
+    } catch (error) {
+      showMessage(error.message || 'Failed to read background image.');
+      return;
+    }
+  }
+
+  try {
+    const payload = await apiRequest('admin-update-background', {
+      method: 'POST',
+      data: {
+        imageDataUrl,
+        tileWidth: Number(adminBackgroundTileWidthInputEl?.value || state.backgroundConfig.tileWidth),
+        tileHeight: Number(adminBackgroundTileHeightInputEl?.value || state.backgroundConfig.tileHeight),
+        overlayOpacity: Number(adminBackgroundOpacityInputEl?.value || state.backgroundConfig.overlayOpacity)
+      }
+    });
+    if (adminBackgroundFileInputEl) {
+      adminBackgroundFileInputEl.value = '';
+    }
+    applyPayload(payload);
+    showMessage('Background updated.', false);
+    render();
+  } catch (error) {
+    if (await handleConflictError(error, { refreshChat: false })) return;
+    showMessage(error.message || 'Failed to update background.');
+  }
+}
+
+async function adminResetBackgroundSettings() {
+  if (!hasAdminAccess(state.user)) return;
+  try {
+    const payload = await apiRequest('admin-update-background', {
+      method: 'POST',
+      data: {
+        clearImage: true,
+        tileWidth: 280,
+        tileHeight: 160,
+        overlayOpacity: 0.55
+      }
+    });
+    if (adminBackgroundFileInputEl) {
+      adminBackgroundFileInputEl.value = '';
+    }
+    applyPayload(payload);
+    showMessage('Background reset to default.', false);
+    render();
+  } catch (error) {
+    if (await handleConflictError(error, { refreshChat: false })) return;
+    showMessage(error.message || 'Failed to reset background.');
   }
 }
 
@@ -3112,6 +3311,30 @@ if (adminSaveUserProfileBtnEl) {
 
 if (adminExportDbBtnEl) {
   adminExportDbBtnEl.addEventListener('click', adminExportDb);
+}
+
+if (adminBackgroundFileInputEl) {
+  adminBackgroundFileInputEl.addEventListener('change', renderAdminBackgroundPanel);
+}
+
+if (adminBackgroundOpacityInputEl) {
+  adminBackgroundOpacityInputEl.addEventListener('input', renderAdminBackgroundPanel);
+}
+
+if (adminBackgroundTileWidthInputEl) {
+  adminBackgroundTileWidthInputEl.addEventListener('input', renderAdminBackgroundPanel);
+}
+
+if (adminBackgroundTileHeightInputEl) {
+  adminBackgroundTileHeightInputEl.addEventListener('input', renderAdminBackgroundPanel);
+}
+
+if (adminSaveBackgroundBtnEl) {
+  adminSaveBackgroundBtnEl.addEventListener('click', adminSaveBackgroundSettings);
+}
+
+if (adminResetBackgroundBtnEl) {
+  adminResetBackgroundBtnEl.addEventListener('click', adminResetBackgroundSettings);
 }
 
 if (scoringHelpBtnEl) {

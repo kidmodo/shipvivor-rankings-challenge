@@ -14,8 +14,10 @@ const {
 } = require('./game');
 const {
   defaultVotedOff,
+  defaultBackgroundConfig,
   ensureUserProfile,
   normalizeChatMessages,
+  normalizeBackgroundConfig,
   normalizeScoreInclusionsMap,
   normalizeScoreOmissionsMap,
   normalizeSkippedWeeks,
@@ -262,6 +264,7 @@ function buildGamePayload(db, authenticatedUser, requestedWeek) {
     biggestUpset: computeBiggestUpset(db),
     mostHated: computeMostHatedLastWeek(db),
     lowestRankedActive: computeLowestRankedActive(db),
+    backgroundConfig: normalizeBackgroundConfig(db.settings?.background || defaultBackgroundConfig()),
     weekReport,
     chat,
     myScore: score,

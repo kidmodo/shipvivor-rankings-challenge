@@ -5,18 +5,22 @@ const { connectLambda, getStore } = require('@netlify/blobs');
 
 const { hashPassword } = require('./auth');
 const {
+  BACKGROUND_IMAGE_BLOB_KEY_PREFIX,
   BLOB_STATE_KEY,
   BLOB_STORE_NAME,
   CAST_IDS,
   LEGACY_SCORE_WEEK,
+  LOCAL_BACKGROUND_IMAGE_PATH,
   LOCAL_DB_PATH
 } = require('./constants');
 const { computeLegacyWeekPoints } = require('./scoring');
 const {
+  defaultBackgroundConfig,
   createDefaultTribesById,
   defaultLineup,
   defaultVotedOff,
   ensureUserProfile,
+  normalizeBackgroundConfig,
   normalizeChatMessages,
   normalizeScoreInclusionsMap,
   normalizeScoreOmissionsMap,
@@ -46,6 +50,9 @@ function createDefaultDb() {
     tribesById: createDefaultTribesById(),
     profiles: {},
     chat: { messages: [] },
+    settings: {
+      background: defaultBackgroundConfig()
+    },
     reports: {},
     weekRecaps: {},
     weekComments: {},
@@ -119,6 +126,15 @@ function ensureDbShape(db) {
   }
   if (!db.chat || typeof db.chat !== 'object') {
     db.chat = { messages: [] };
+    changed = true;
+  }
+  if (!db.settings || typeof db.settings !== 'object') {
+    db.settings = { background: defaultBackgroundConfig() };
+    changed = true;
+  }
+  const normalizedBackground = normalizeBackgroundConfig(db.settings.background);
+  if (JSON.stringify(normalizedBackground) !== JSON.stringify(db.settings.background || {})) {
+    db.settings.background = normalizedBackground;
     changed = true;
   }
   const normalizedChatMessages = normalizeChatMessages(db.chat.messages);
@@ -322,6 +338,57 @@ async function writeLocalDb(db) {
   await fs.writeFile(LOCAL_DB_PATH, JSON.stringify(db, null, 2), 'utf8');
 }
 
+function getBackgroundImageBlobKey(version) {
+  const versionNum = Number(version);
+  if (!Number.isInteger(versionNum) || versionNum < 1) return null;
+  return `${BACKGROUND_IMAGE_BLOB_KEY_PREFIX}-${versionNum}`;
+}
+
+async function readBackgroundImage(event, version) {
+  const key = getBackgroundImageBlobKey(version);
+  if (!key) return '';
+  const runningInNetlify = Boolean(
+    process.env.NETLIFY
+    || process.env.CONTEXT
+    || process.env.URL
+    || process.env.NETLIFY_IMAGES_CDN_DOMAIN
+  );
+
+  if (runningInNetlify || event?.blobs) {
+    connectLambda(event);
+    const store = getStore(BLOB_STORE_NAME);
+    const value = await store.get(key, { type: 'text' });
+    return typeof value === 'string' ? value : '';
+  }
+
+  try {
+    return await fs.readFile(LOCAL_BACKGROUND_IMAGE_PATH, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+async function writeBackgroundImage(event, version, dataUrl) {
+  const key = getBackgroundImageBlobKey(version);
+  if (!key || !dataUrl) return;
+  const runningInNetlify = Boolean(
+    process.env.NETLIFY
+    || process.env.CONTEXT
+    || process.env.URL
+    || process.env.NETLIFY_IMAGES_CDN_DOMAIN
+  );
+
+  if (runningInNetlify || event?.blobs) {
+    connectLambda(event);
+    const store = getStore(BLOB_STORE_NAME);
+    await store.set(key, dataUrl);
+    return;
+  }
+
+  await fs.mkdir(path.dirname(LOCAL_BACKGROUND_IMAGE_PATH), { recursive: true });
+  await fs.writeFile(LOCAL_BACKGROUND_IMAGE_PATH, dataUrl, 'utf8');
+}
+
 async function withBlobDb(event, callback) {
   connectLambda(event);
   const store = getStore(BLOB_STORE_NAME);
@@ -346,6 +413,9 @@ async function withBlobDb(event, callback) {
 
     if (writeResult.modified) {
       delete result.save;
+      if (typeof result.postSave === 'function') {
+        await result.postSave(db);
+      }
       if (result?.response && result.attachMeta !== false) attachMetaToResponse(result.response, db);
       return result;
     }
@@ -376,6 +446,9 @@ async function withDb(event, callback) {
     touchRevision(db);
     await writeLocalDb(db);
     delete result.save;
+    if (typeof result.postSave === 'function') {
+      await result.postSave(db);
+    }
   }
   if (result?.response && result.attachMeta !== false) attachMetaToResponse(result.response, db);
   return result;
@@ -470,9 +543,12 @@ module.exports = {
   createDefaultDb,
   ensureAdminUser,
   ensureDbShape,
+  getBackgroundImageBlobKey,
   readLocalDb,
+  readBackgroundImage,
   touchRevision,
   withBlobDb,
   withDb,
+  writeBackgroundImage,
   writeLocalDb
 };

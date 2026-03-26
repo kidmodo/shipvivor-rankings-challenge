@@ -12,6 +12,7 @@ const {
   getNotesForWeek,
   propagateVotedOffForward
 } = require('../game');
+const { writeBackgroundImage } = require('../db');
 const {
   getRevisionConflictResponse,
   parseBody,
@@ -22,6 +23,7 @@ const {
   defaultWeekRecapTitle,
   ensureUserProfile,
   normalizeChatMessages,
+  normalizeBackgroundConfig,
   normalizeScoreInclusionsMap,
   normalizeScoreOmissionsMap,
   normalizeTribeKey,
@@ -30,6 +32,7 @@ const {
   normalizeVotedOff,
   normalizeWeekCommentsMap,
   sanitizeBirthName,
+  sanitizeBackgroundImageDataUrl,
   sanitizeNote,
   sanitizeUserAffiliation,
   sanitizeWeekRecap,
@@ -240,6 +243,42 @@ async function handleAdminUpdateWeekRecap({ event, db, authenticatedUser }) {
 
   return {
     save: true,
+    response: response(200, { ok: true, ...buildGamePayload(db, authenticatedUser, db.game.currentWeek) })
+  };
+}
+
+async function handleAdminUpdateBackground({ event, db, authenticatedUser }) {
+  if (!requireAdmin(authenticatedUser)) {
+    return { response: response(403, { ok: false, error: 'Admin access required.' }) };
+  }
+
+  const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
+
+  const currentConfig = normalizeBackgroundConfig(db.settings?.background || {});
+  const imageDataUrl = sanitizeBackgroundImageDataUrl(body.imageDataUrl);
+  const clearImage = Boolean(body.clearImage);
+  const hasIncomingImage = Boolean(imageDataUrl);
+  const nextVersion = (clearImage || hasIncomingImage) ? currentConfig.imageVersion + 1 : currentConfig.imageVersion;
+
+  if (!db.settings || typeof db.settings !== 'object') {
+    db.settings = {};
+  }
+  db.settings.background = normalizeBackgroundConfig({
+    ...currentConfig,
+    tileWidth: body.tileWidth,
+    tileHeight: body.tileHeight,
+    overlayOpacity: body.overlayOpacity,
+    hasCustomImage: hasIncomingImage ? true : (clearImage ? false : currentConfig.hasCustomImage),
+    imageVersion: nextVersion
+  });
+
+  return {
+    save: true,
+    postSave: hasIncomingImage
+      ? async () => writeBackgroundImage(event, nextVersion, imageDataUrl)
+      : null,
     response: response(200, { ok: true, ...buildGamePayload(db, authenticatedUser, db.game.currentWeek) })
   };
 }
@@ -512,6 +551,7 @@ module.exports = {
   handleAdminSetBirthName,
   handleAdminSetOmitScoreWeek,
   handleAdminSetWeekComment,
+  handleAdminUpdateBackground,
   handleAdminUpdateCastTribe,
   handleAdminUpdateUserPassword,
   handleAdminUpdateUserProfile,

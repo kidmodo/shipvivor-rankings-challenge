@@ -97,6 +97,35 @@
               <button id="adminDeleteUserBtn" type="button" class="admin-btn">Delete User</button>
             </div>
           </div>
+          <div id="adminBackgroundPanel" class="admin-user-panel hidden">
+            <p>Background Settings</p>
+            <div class="admin-user-profile-fields">
+              <label>
+                Background Image
+                <input id="adminBackgroundFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+              </label>
+              <p id="adminBackgroundStatus" class="admin-panel-status">Using current background.</p>
+              <div class="background-grid">
+                <label>
+                  Tile Width
+                  <input id="adminBackgroundTileWidthInput" type="number" min="120" max="640" step="10">
+                </label>
+                <label>
+                  Tile Height
+                  <input id="adminBackgroundTileHeightInput" type="number" min="80" max="420" step="10">
+                </label>
+              </div>
+              <label>
+                Overlay Opacity
+                <input id="adminBackgroundOpacityInput" type="range" min="0.1" max="0.9" step="0.05">
+                <span id="adminBackgroundOpacityValue" class="admin-panel-status"></span>
+              </label>
+            </div>
+            <div class="admin-user-actions">
+              <button id="adminSaveBackgroundBtn" type="button" class="ghost-btn">Save Background</button>
+              <button id="adminResetBackgroundBtn" type="button" class="ghost-btn">Use Default</button>
+            </div>
+          </div>
         </section>
 
         <section class="week-recap-card" aria-label="Week recap">

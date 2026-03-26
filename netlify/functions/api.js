@@ -12,6 +12,7 @@ const {
   handleAdminSetBirthName,
   handleAdminSetOmitScoreWeek,
   handleAdminSetWeekComment,
+  handleAdminUpdateBackground,
   handleAdminUpdateCastTribe,
   handleAdminUpdateUserPassword,
   handleAdminUpdateUserProfile,
@@ -19,7 +20,13 @@ const {
   handleAdminUpdateWeekRecap
 } = require('./lib/routes/admin-routes');
 const { handleChatList, handleSendChatMessage, handleSetChatAvatar } = require('./lib/routes/chat-routes');
-const { handleGame, handleSaveLineup, handleSetSkipWeek, handleViewUserWeek } = require('./lib/routes/game-routes');
+const {
+  handleBackgroundImage,
+  handleGame,
+  handleSaveLineup,
+  handleSetSkipWeek,
+  handleViewUserWeek
+} = require('./lib/routes/game-routes');
 
 const routes = {
   game: { methods: ['GET'], handler: handleGame },
@@ -36,6 +43,7 @@ const routes = {
   'view-user-week': { methods: ['GET'], handler: handleViewUserWeek },
   'admin-update-week-recap': { methods: ['POST'], handler: handleAdminUpdateWeekRecap },
   'admin-set-week-comment': { methods: ['POST'], handler: handleAdminSetWeekComment },
+  'admin-update-background': { methods: ['POST'], handler: handleAdminUpdateBackground },
   'admin-set-omit-score-week': { methods: ['POST'], handler: handleAdminSetOmitScoreWeek },
   'admin-set-birth-name': { methods: ['POST'], handler: handleAdminSetBirthName },
   'admin-update-user-profile': { methods: ['POST'], handler: handleAdminUpdateUserProfile },
@@ -44,7 +52,8 @@ const routes = {
   'chat-list': { methods: ['GET'], handler: handleChatList },
   'set-chat-avatar': { methods: ['POST'], handler: handleSetChatAvatar },
   'send-chat-message': { methods: ['POST'], handler: handleSendChatMessage },
-  'admin-export-db': { methods: ['GET'], handler: handleAdminExportDb }
+  'admin-export-db': { methods: ['GET'], handler: handleAdminExportDb },
+  'background-image': { methods: ['GET'], handler: handleBackgroundImage }
 };
 
 exports.handler = async (event) => {
@@ -65,7 +74,7 @@ exports.handler = async (event) => {
       return { response: response(404, { ok: false, error: 'Unknown action.' }) };
     }
 
-    if (!['game', 'signup', 'login', 'logout'].includes(action) && !authenticatedUser) {
+    if (!['game', 'signup', 'login', 'logout', 'background-image'].includes(action) && !authenticatedUser) {
       return { response: response(401, { ok: false, error: 'Unauthorized.' }) };
     }
 

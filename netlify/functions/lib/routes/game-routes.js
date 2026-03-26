@@ -1,4 +1,5 @@
 const { CAST_IDS, NO_SCORE_WEEKS } = require('../constants');
+const { readBackgroundImage } = require('../db');
 const {
   computeWeekReport,
   formatWeekLockTime,
@@ -233,7 +234,31 @@ async function handleViewUserWeek({ event, db }) {
   };
 }
 
+async function handleBackgroundImage({ event, db }) {
+  const version = Number(event.queryStringParameters?.version || db.settings?.background?.imageVersion || 0);
+  const backgroundConfig = db.settings?.background;
+  if (!backgroundConfig?.hasCustomImage || !Number.isInteger(version) || version < 1) {
+    return { response: response(404, { ok: false, error: 'No custom background image configured.' }) };
+  }
+  const dataUrl = await readBackgroundImage(event, version);
+  if (!dataUrl) {
+    return { response: response(404, { ok: false, error: 'Background image not found.' }) };
+  }
+  return {
+    attachMeta: false,
+    response: {
+      statusCode: 200,
+      headers: {
+        'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'public, max-age=31536000, immutable'
+      },
+      body: dataUrl
+    }
+  };
+}
+
 module.exports = {
+  handleBackgroundImage,
   handleGame,
   handleSaveLineup,
   handleSetSkipWeek,

@@ -219,6 +219,43 @@ function normalizeWeekCommentsMap(weekComments, users = null) {
   return normalized;
 }
 
+function defaultBackgroundConfig() {
+  return {
+    tileWidth: 280,
+    tileHeight: 160,
+    overlayOpacity: 0.55,
+    hasCustomImage: false,
+    imageVersion: 0
+  };
+}
+
+function clampNumber(value, min, max, fallback) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.max(min, Math.min(max, num));
+}
+
+function normalizeBackgroundConfig(config) {
+  const base = defaultBackgroundConfig();
+  const source = config && typeof config === 'object' && !Array.isArray(config) ? config : {};
+  const imageVersion = Number(source.imageVersion);
+  return {
+    tileWidth: Math.round(clampNumber(source.tileWidth, 120, 640, base.tileWidth)),
+    tileHeight: Math.round(clampNumber(source.tileHeight, 80, 420, base.tileHeight)),
+    overlayOpacity: Math.round(clampNumber(source.overlayOpacity, 0.1, 0.9, base.overlayOpacity) * 100) / 100,
+    hasCustomImage: Boolean(source.hasCustomImage),
+    imageVersion: Number.isInteger(imageVersion) && imageVersion >= 0 ? imageVersion : base.imageVersion
+  };
+}
+
+function sanitizeBackgroundImageDataUrl(value) {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) return '';
+  if (!/^data:image\/(?:png|jpeg|jpg|webp|gif);base64,/i.test(raw)) return '';
+  if (raw.length > 3_000_000) return '';
+  return raw;
+}
+
 function sanitizeChatMessage(value) {
   return String(value || '')
     .replace(/\r/g, '')
@@ -268,7 +305,9 @@ module.exports = {
   defaultWeekRecapTitle,
   ensureUserProfile,
   normalizeAvatarId,
+  defaultBackgroundConfig,
   normalizeChatMessages,
+  normalizeBackgroundConfig,
   normalizeNotesMap,
   normalizeOrder,
   normalizeScoreInclusionsMap,
@@ -283,6 +322,7 @@ module.exports = {
   normalizeWeekRecapEntry,
   normalizeWinnerPicksList,
   normalizeWinnerPicksMap,
+  sanitizeBackgroundImageDataUrl,
   sanitizeBirthName,
   sanitizeChatMessage,
   sanitizeNote,
