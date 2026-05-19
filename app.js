@@ -85,6 +85,7 @@ const rankingsViewEl = document.getElementById('rankingsView');
 const othersRankingsViewEl = document.getElementById('othersRankingsView');
 const chatViewEl = document.getElementById('chatView');
 const fullStandingsViewEl = document.getElementById('fullStandingsView');
+const fullStandingsTitleEl = document.getElementById('fullStandingsTitle');
 const setLineupTabBtnEl = document.getElementById('setLineupTabBtn');
 const standingsTabBtnEl = document.getElementById('standingsTabBtn');
 const othersRankingsTabBtnEl = document.getElementById('othersRankingsTabBtn');
@@ -98,6 +99,7 @@ const skipWeekNoteEl = document.getElementById('skipWeekNote');
 const resetWeekBtnEl = document.getElementById('resetWeekBtn');
 const advanceWeekBtnEl = document.getElementById('advanceWeekBtn');
 const weekStatsEl = document.getElementById('weekStats');
+const finaleNoticeEl = document.getElementById('finaleNotice');
 
 const myScoreTotalEl = document.getElementById('myScoreTotal');
 const myScoreBreakdownEl = document.getElementById('myScoreBreakdown');
@@ -137,10 +139,12 @@ const state = {
   cast: [],
   castMap: new Map(),
   currentWeek: 1,
+  isGameEnded: false,
   selectedWeek: 1,
   weeks: [1],
   priorVotedOff: {},
   votedOff: {},
+  finalPlacements: {},
   fullLineup: [],
   activeLineup: [],
   eliminatedLineup: [],
@@ -177,11 +181,13 @@ const state = {
   othersNotes: {},
   othersPriorVotedOff: {},
   othersVotedOff: {},
+  othersFinalPlacements: {},
   othersSkippedWeek: false,
   othersOmittedWeek: false,
   othersNoSubmit: false,
   othersHasSavedLineup: false,
   othersCountedByAdmin: false,
+  othersIsFinaleWeek: false,
   othersWeekReport: null,
   othersWeekCommentOfWeek: null,
   othersLoadedWeek: null,
@@ -208,6 +214,8 @@ const state = {
   backgroundConfig: { tileWidth: 280, tileHeight: 160, overlayOpacity: 0.55, hasCustomImage: false, imageVersion: 0 },
   backgroundImageUrl: null,
   canEditVotedOff: false,
+  canEditFinalPlacements: false,
+  isFinaleWeek: false,
   tribeUpdateInFlight: false,
   birthNameUpdateInFlight: false,
   hasUnsavedChanges: false,
@@ -321,7 +329,7 @@ function storeLastSeenChatMessageId(username, messageId) {
 }
 
 function saveCurrentLineupDraft() {
-  if (!state.user || state.isViewingOther || state.selectedWeek !== state.currentWeek) return;
+  if (!state.user || state.isViewingOther || state.selectedWeek !== state.currentWeek || state.isGameEnded) return;
   storeLineupDraft(state.user.username, state.selectedWeek, {
     fullLineup: state.fullLineup,
     notes: state.notes,
@@ -336,7 +344,7 @@ function clearCurrentLineupDraft() {
 }
 
 function restoreCurrentLineupDraft() {
-  if (!state.user || state.isViewingOther || state.selectedWeek !== state.currentWeek) return false;
+  if (!state.user || state.isViewingOther || state.selectedWeek !== state.currentWeek || state.isGameEnded) return false;
   const draft = loadLineupDraft(state.user.username, state.selectedWeek);
   if (!draft) return false;
 
@@ -622,10 +630,18 @@ function deriveDisplayBuckets() {
   state.eliminatedLineup = state.fullLineup.filter((id) => priorMap[id]);
 }
 
+function isCompletedWeekClient(week) {
+  const weekNum = Number(week);
+  if (!Number.isInteger(weekNum) || weekNum < 1) return false;
+  if (weekNum < state.currentWeek) return true;
+  return Boolean(state.isGameEnded && weekNum === state.currentWeek);
+}
+
 function isLineupEditable() {
   return Boolean(
     state.user
     && state.selectedWeek === state.currentWeek
+    && !state.isGameEnded
     && !state.isNoScoreWeek
     && !state.isOmittedWeek
     && !state.isWeekLocked
@@ -637,7 +653,7 @@ function isLineupEditable() {
 function canViewPastUserLineups() {
   return Boolean(
     state.user
-    && state.selectedWeek < state.currentWeek
+    && isCompletedWeekClient(state.selectedWeek)
     && !state.isNoScoreWeek
   );
 }
@@ -696,6 +712,28 @@ function formatPoints(value) {
   const num = Number(value);
   if (!Number.isFinite(num)) return '0.0';
   return num.toFixed(1);
+}
+
+function formatOrdinal(value) {
+  const num = Number(value);
+  if (!Number.isInteger(num) || num < 1) return '';
+  const mod100 = num % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${num}th`;
+  const mod10 = num % 10;
+  if (mod10 === 1) return `${num}st`;
+  if (mod10 === 2) return `${num}nd`;
+  if (mod10 === 3) return `${num}rd`;
+  return `${num}th`;
+}
+
+function getSelectedWeekFinalPlacement(id) {
+  const placement = Number(state.finalPlacements?.[id] || 0);
+  return Number.isInteger(placement) && placement > 0 ? placement : null;
+}
+
+function getOthersWeekFinalPlacement(id) {
+  const placement = Number(state.othersFinalPlacements?.[id] || 0);
+  return Number.isInteger(placement) && placement > 0 ? placement : null;
 }
 
 function formatRankDelta(currentRank, previousRank) {
@@ -981,6 +1019,7 @@ function applyPayload(payload) {
 
   const hadLocalWeekRecapDraft = hasUnsavedWeekRecapDraft();
   const previousUsername = state.user?.username || null;
+  const wasGameEnded = state.isGameEnded;
 
   state.user = payload.user || null;
   if (state.user?.username !== previousUsername) {
@@ -993,20 +1032,23 @@ function applyPayload(payload) {
   const cachedWeek = Number(localStorage.getItem(LAST_KNOWN_WEEK_KEY) || 0);
   state.currentWeek = Math.max(payloadCurrentWeek, cachedWeek, 1);
   localStorage.setItem(LAST_KNOWN_WEEK_KEY, String(state.currentWeek));
+  state.isGameEnded = Boolean(payload.isGameEnded);
   state.selectedWeek = Number(payload.selectedWeek || state.currentWeek);
   if (state.selectedWeek > state.currentWeek) {
     state.selectedWeek = state.currentWeek;
   }
   state.weeks = Array.isArray(payload.weeks) && payload.weeks.length ? payload.weeks : [1];
-  const completedWeeks = state.weeks.filter((week) => week > 1 && week < state.currentWeek);
+  const completedWeeks = state.weeks.filter((week) => week > 1 && isCompletedWeekClient(week));
   if (!completedWeeks.length) {
     state.othersWeek = null;
     state.othersLineup = [];
     state.othersNotes = {};
     state.othersPriorVotedOff = {};
     state.othersVotedOff = {};
+    state.othersFinalPlacements = {};
     state.othersWeekReport = null;
     state.othersWeekCommentOfWeek = null;
+    state.othersIsFinaleWeek = false;
     state.othersLoadedWeek = null;
     state.othersLoadedUsername = null;
   } else if (!completedWeeks.includes(state.othersWeek)) {
@@ -1015,6 +1057,9 @@ function applyPayload(payload) {
   }
   state.priorVotedOff = payload.priorVotedOff || {};
   state.votedOff = payload.votedOff || {};
+  state.finalPlacements = payload.finalPlacements && typeof payload.finalPlacements === 'object'
+    ? payload.finalPlacements
+    : {};
   state.fullLineup = normalizeLineup(payload.lineup || state.cast.map((castaway) => castaway.id));
   state.notes = payload.notes || {};
   state.previousWeekRanks = payload.previousWeekRanks && typeof payload.previousWeekRanks === 'object'
@@ -1060,6 +1105,7 @@ function applyPayload(payload) {
   state.mostHated = payload.mostHated || payload.lowestRankedActive || null;
   state.myScore = payload.myScore || null;
   state.backgroundConfig = normalizeBackgroundConfigClient(payload.backgroundConfig || state.backgroundConfig);
+  state.isFinaleWeek = Boolean(payload.isFinaleWeek);
   state.weekRecapWeek = Number(payload.weekRecapWeek || state.selectedWeek || state.currentWeek || 1);
   state.weekRecapTitle = String(payload.weekRecapTitle || `Week ${state.weekRecapWeek} Recap`);
   state.weekRecap = String(payload.weekRecap || '');
@@ -1073,6 +1119,7 @@ function applyPayload(payload) {
     closeWeekRecapEditor(false);
   }
   state.canEditVotedOff = Boolean(payload.canEditVotedOff);
+  state.canEditFinalPlacements = Boolean(payload.canEditFinalPlacements);
   if (!state.adminTargetUser || !state.allUsers.includes(state.adminTargetUser)) {
     state.adminProfileDraftDirty = false;
     state.adminProfileDraftTarget = null;
@@ -1087,6 +1134,10 @@ function applyPayload(payload) {
   if (!restoredLocalDraft) {
     state.dirty = false;
     state.hasUnsavedChanges = false;
+  }
+  if (!wasGameEnded && state.isGameEnded) {
+    clearCurrentLineupDraft();
+    state.activeTab = 'standings';
   }
   void ensureBackgroundImageLoaded();
   return true;
@@ -1113,6 +1164,12 @@ function hasSavedCurrentWeekLineup() {
 function renderSaveStatusBanner() {
   if (!saveStatusBannerEl) return;
   if (!state.user) {
+    saveStatusBannerEl.textContent = '';
+    saveStatusBannerEl.classList.add('hidden');
+    saveStatusBannerEl.classList.remove('is-unsaved', 'is-missing');
+    return;
+  }
+  if (state.isGameEnded) {
     saveStatusBannerEl.textContent = '';
     saveStatusBannerEl.classList.add('hidden');
     saveStatusBannerEl.classList.remove('is-unsaved', 'is-missing');
@@ -1354,7 +1411,9 @@ function closeScoringHelpModal() {
 }
 
 function renderBanner() {
-  activeWeekBadgeEl.textContent = `Week ${state.currentWeek}`;
+  activeWeekBadgeEl.textContent = state.isGameEnded
+    ? `Final Standings • Week ${state.currentWeek}`
+    : (state.isFinaleWeek ? `Finale • Week ${state.currentWeek}` : `Week ${state.currentWeek}`);
   if (!state.biggestUpset) {
     biggestUpsetTextEl.textContent = 'No elimination data yet.';
   } else {
@@ -1484,6 +1543,18 @@ function renderScore() {
       myScoreBreakdownEl.appendChild(li);
       continue;
     }
+    if (weekEntry.scoringVersion === 'finale_v3') {
+      const exactMatches = Array.isArray(weekEntry.matches)
+        ? weekEntry.matches.filter((item) => item.correct)
+        : [];
+      const matchText = exactMatches.length
+        ? exactMatches.map((item) => `${item.name} (${formatOrdinal(item.actualPlacement)})`).join('; ')
+        : 'no exact placements';
+      const li = document.createElement('li');
+      li.textContent = `Week ${weekEntry.week}: +${formatPoints(weekEntry.points)} - ${matchText}`;
+      myScoreBreakdownEl.appendChild(li);
+      continue;
+    }
     const parts = weekEntry.eliminations
       .map((item) => `${item.name} (#${item.rank}/${item.activeCount} = +${formatPoints(item.points)})`)
       .join('; ');
@@ -1516,6 +1587,22 @@ function toggleWinnerPick(castawayId) {
   renderRankList();
 }
 
+function renderFinaleNotice() {
+  if (!finaleNoticeEl) return;
+  if (!state.isFinaleWeek) {
+    finaleNoticeEl.classList.add('hidden');
+    finaleNoticeEl.innerHTML = '';
+    return;
+  }
+  const finalists = state.activeLineup.length;
+  const baseText = state.isGameEnded
+    ? `Week 13 is complete. These rankings were submitted as predicted finale finish order from 1st through ${formatOrdinal(finalists)}.`
+    : `Finale rules: rank the remaining ${finalists} players by predicted finish order, from 1st through ${formatOrdinal(finalists)}. This is not a vote-out ranking this week.`;
+  const scoreText = 'Each exact placement match is worth 15.0 points.';
+  finaleNoticeEl.innerHTML = `<strong>Finale Mode</strong> ${escapeHtml(baseText)} ${escapeHtml(scoreText)}`;
+  finaleNoticeEl.classList.remove('hidden');
+}
+
 function renderControls() {
   const selectableWeeks = state.weeks.filter((week) => week > 1);
   weekSelectEl.replaceChildren();
@@ -1532,12 +1619,27 @@ function renderControls() {
   }
   weekSelectEl.disabled = !selectableWeeks.length;
 
-  const thisWeekVotedOff = state.activeLineup.filter((id) => Boolean(state.votedOff[id])).length;
-  weekStatsEl.textContent = `${state.activeLineup.length} in this week's ranking | ${thisWeekVotedOff} marked voted off | ${state.eliminatedLineup.length} prior eliminated`;
+  if (state.isFinaleWeek) {
+    const placementCount = Object.keys(state.finalPlacements || {}).length;
+    const placementText = state.user?.isAdmin
+      ? ` | ${placementCount}/${state.activeLineup.length} final placements entered`
+      : '';
+    weekStatsEl.textContent = `${state.activeLineup.length} finalists in predicted finish order${placementText}`;
+  } else {
+    const thisWeekVotedOff = state.activeLineup.filter((id) => Boolean(state.votedOff[id])).length;
+    weekStatsEl.textContent = `${state.activeLineup.length} in this week's ranking | ${thisWeekVotedOff} marked voted off | ${state.eliminatedLineup.length} prior eliminated`;
+  }
+  renderFinaleNotice();
 
   if (state.user?.isAdmin) {
-    const canAdvanceWeek = !state.isViewingOther && state.selectedWeek === state.currentWeek;
-    advanceWeekBtnEl.classList.remove('hidden');
+    const hasCompleteFinalPlacements = !state.isFinaleWeek
+      || Object.keys(state.finalPlacements || {}).length === state.activeLineup.length;
+    const canAdvanceWeek = !state.isViewingOther
+      && state.selectedWeek === state.currentWeek
+      && !state.isGameEnded
+      && hasCompleteFinalPlacements;
+    advanceWeekBtnEl.classList.toggle('hidden', state.isGameEnded);
+    advanceWeekBtnEl.textContent = state.isFinaleWeek ? 'Finalize Season (Admin)' : 'Advance Week (Admin)';
     advanceWeekBtnEl.disabled = !canAdvanceWeek;
   } else {
     advanceWeekBtnEl.classList.add('hidden');
@@ -1545,7 +1647,7 @@ function renderControls() {
   }
 
   const isCurrentWeek = state.selectedWeek === state.currentWeek;
-  if (state.isNoScoreWeek || (state.isWeekLocked && isCurrentWeek) || !isCurrentWeek || state.isViewingOther) {
+  if (state.isGameEnded || state.isNoScoreWeek || (state.isWeekLocked && isCurrentWeek) || !isCurrentWeek || state.isViewingOther) {
     skipWeekBtnEl.textContent = 'Week Locked';
     skipWeekBtnEl.disabled = true;
   } else {
@@ -1556,6 +1658,11 @@ function renderControls() {
   if (state.isNoScoreWeek) {
     skipWeekNoteEl.classList.remove('hidden');
     skipWeekNoteEl.textContent = `Week ${state.selectedWeek} is excluded from scoring.`;
+  } else if (state.isGameEnded) {
+    skipWeekNoteEl.classList.remove('hidden');
+    skipWeekNoteEl.textContent = state.canEditFinalPlacements
+      ? 'The season is complete. Final standings are displayed, and admin can still correct final placements here if needed.'
+      : 'The season is complete. Final standings are now displayed.';
   } else if (state.isOmittedWeek) {
     skipWeekNoteEl.classList.remove('hidden');
     if (state.isViewingOther) {
@@ -1577,9 +1684,13 @@ function renderControls() {
     skipWeekNoteEl.textContent = `Viewing ${formatUserLabelText(state.lineupOwner)} rankings for Week ${state.selectedWeek}.`;
   } else if (!isCurrentWeek) {
     skipWeekNoteEl.classList.remove('hidden');
-    skipWeekNoteEl.textContent = state.canEditVotedOff
-      ? `Week ${state.selectedWeek} is complete and read-only for rankings. Admin can still fix voted-off players here.`
-      : `Week ${state.selectedWeek} is complete and read-only.`;
+    if (state.canEditFinalPlacements) {
+      skipWeekNoteEl.textContent = `Week ${state.selectedWeek} is complete and read-only for rankings. Admin can still fix final placements here.`;
+    } else {
+      skipWeekNoteEl.textContent = state.canEditVotedOff
+        ? `Week ${state.selectedWeek} is complete and read-only for rankings. Admin can still fix voted-off players here.`
+        : `Week ${state.selectedWeek} is complete and read-only.`;
+    }
   } else {
     skipWeekNoteEl.classList.add('hidden');
     skipWeekNoteEl.textContent = '';
@@ -1638,13 +1749,35 @@ function renderRankList() {
     const showRankDelta = Boolean(rankDelta && state.selectedWeek > 2);
 
     const isVotedOff = Boolean(state.votedOff[id]);
+    const finalPlacement = getSelectedWeekFinalPlacement(id);
     const li = document.createElement('li');
-    li.className = `cast-card tribe-${tribe.key}${isVotedOff ? ' voted-off' : ''}`;
+    li.className = `cast-card tribe-${tribe.key}${!state.isFinaleWeek && isVotedOff ? ' voted-off' : ''}`;
     li.dataset.id = id;
     li.draggable = editable;
 
     let statusHtml = '';
-    if (state.canEditVotedOff) {
+    if (state.canEditFinalPlacements) {
+      const finalists = state.activeLineup.length;
+      const options = [`<option value="">-</option>`]
+        .concat(Array.from({ length: finalists }, (_, optionIndex) => {
+          const placement = optionIndex + 1;
+          const selectedAttr = finalPlacement === placement ? ' selected' : '';
+          return `<option value="${placement}"${selectedAttr}>${formatOrdinal(placement)}</option>`;
+        }))
+        .join('');
+      statusHtml = `
+        <label class="status">
+          Final Place
+          <select data-role="final-placement" aria-label="Final placement for ${escapeHtml(castaway.name)}">
+            ${options}
+          </select>
+        </label>
+      `;
+    } else if (state.isFinaleWeek && finalPlacement) {
+      statusHtml = `<span class="final-placement-tag">Finished ${formatOrdinal(finalPlacement)}</span>`;
+    } else if (state.isFinaleWeek) {
+      statusHtml = '<span class="voted-off-tag">Finalist</span>';
+    } else if (state.canEditVotedOff) {
       statusHtml = `
         <label class="status">
           <input type="checkbox" data-role="voted-off" ${isVotedOff ? 'checked' : ''}>
@@ -1675,7 +1808,7 @@ function renderRankList() {
             maxlength="2"
             value="${index + 1}"
             data-role="rank-input"
-            aria-label="Ranking position for ${escapeHtml(castaway.name)}"
+            aria-label="${state.isFinaleWeek ? `Predicted finish position for ${escapeHtml(castaway.name)}` : `Ranking position for ${escapeHtml(castaway.name)}`}"
             ${!editable ? 'disabled' : ''}
           >
         </div>
@@ -1698,6 +1831,7 @@ function renderRankList() {
       </div>
       <div class="card-main">
         <div class="name">${escapeHtml(castaway.name)}</div>
+        ${state.isFinaleWeek ? '<div class="prediction-mode-label">Predicted finale finish</div>' : ''}
         ${renderTribeRow(id)}
         <div class="note-wrap">
           <textarea class="note-input" rows="1" maxlength="700" data-role="note-input" placeholder="Note / justification (optional)" ${!editable ? 'disabled' : ''}>${escapeHtml(noteText)}</textarea>
@@ -1724,6 +1858,10 @@ function renderRankList() {
     const votedOffInput = li.querySelector('[data-role="voted-off"]');
     if (votedOffInput) {
       votedOffInput.addEventListener('change', onAdminVotedOffChange);
+    }
+    const finalPlacementInput = li.querySelector('[data-role="final-placement"]');
+    if (finalPlacementInput) {
+      finalPlacementInput.addEventListener('change', onAdminFinalPlacementChange);
     }
     const noteInput = li.querySelector('[data-role="note-input"]');
     if (noteInput) {
@@ -1758,7 +1896,7 @@ function renderRankList() {
 }
 
 function renderWeekReport() {
-  if (!state.weekReport || state.selectedWeek >= state.currentWeek) {
+  if (!state.weekReport || !isCompletedWeekClient(state.selectedWeek)) {
     weekReportPanelEl.classList.add('hidden');
     weekReportWrapEl.innerHTML = '';
     return;
@@ -1867,6 +2005,7 @@ function renderOthersRankingsList() {
     if (!castaway) continue;
     const tribe = getTribeMeta(id);
     const isVotedOff = Boolean(state.othersVotedOff?.[id]);
+    const finalPlacement = getOthersWeekFinalPlacement(id);
     const noteText = String(state.othersNotes?.[id] || '');
     const hasNote = Boolean(noteText.trim());
     const isCommentOfWeek = Boolean(
@@ -1878,7 +2017,7 @@ function renderOthersRankingsList() {
     );
 
     const li = document.createElement('li');
-    li.className = `cast-card tribe-${tribe.key}${isVotedOff ? ' voted-off' : ''}`;
+    li.className = `cast-card tribe-${tribe.key}${!state.othersIsFinaleWeek && isVotedOff ? ' voted-off' : ''}`;
     li.dataset.id = id;
     li.innerHTML = `
       <div class="move-controls"></div>
@@ -1890,6 +2029,7 @@ function renderOthersRankingsList() {
       </div>
       <div class="card-main">
         <div class="name">${escapeHtml(castaway.name)}</div>
+        ${state.othersIsFinaleWeek ? '<div class="prediction-mode-label">Predicted finale finish</div>' : ''}
         ${renderTribeRow(id, { allowAdminControls: false })}
         <div class="note-wrap">
           <textarea class="note-input" rows="1" disabled>${escapeHtml(noteText)}</textarea>
@@ -1903,7 +2043,11 @@ function renderOthersRankingsList() {
           ` : ''}
         </div>
       </div>
-      <div class="status-slot">${isVotedOff ? '<span class="voted-off-tag">Voted Off</span>' : '<span class="voted-off-tag">Active</span>'}</div>
+      <div class="status-slot">${
+        state.othersIsFinaleWeek
+          ? (finalPlacement ? `<span class="final-placement-tag">Finished ${formatOrdinal(finalPlacement)}</span>` : '<span class="voted-off-tag">Finalist</span>')
+          : (isVotedOff ? '<span class="voted-off-tag">Voted Off</span>' : '<span class="voted-off-tag">Active</span>')
+      }</div>
     `;
     othersRankListEl.appendChild(li);
     const noteInput = li.querySelector('.note-input');
@@ -1917,7 +2061,7 @@ function renderOthersRankingsList() {
 
 function renderOthersRankings() {
   if (!othersWeekSelectEl || !viewUserSelectEl) return;
-  const completedWeeks = state.weeks.filter((week) => week > 1 && week < state.currentWeek);
+  const completedWeeks = state.weeks.filter((week) => week > 1 && isCompletedWeekClient(week));
 
   othersWeekSelectEl.replaceChildren();
   completedWeeks.forEach((week) => {
@@ -1966,6 +2110,7 @@ function renderOthersRankings() {
     state.othersNotes = {};
     state.othersPriorVotedOff = {};
     state.othersVotedOff = {};
+    state.othersFinalPlacements = {};
     state.othersSkippedWeek = false;
     state.othersOmittedWeek = false;
     state.othersNoSubmit = false;
@@ -1973,6 +2118,7 @@ function renderOthersRankings() {
     state.othersCountedByAdmin = false;
     state.othersWeekReport = null;
     state.othersWeekCommentOfWeek = null;
+    state.othersIsFinaleWeek = false;
     state.othersLoadedWeek = null;
     state.othersLoadedUsername = null;
     if (othersRankingsStatsEl) {
@@ -2041,7 +2187,7 @@ function computeStandingsMovement(rows, weeks) {
   const usableWeeks = [...weeks]
     .filter((week) => Number.isInteger(week) && week !== 1)
     .sort((a, b) => a - b);
-  const scoredWeeks = usableWeeks.filter((week) => week < state.currentWeek);
+  const scoredWeeks = usableWeeks.filter((week) => isCompletedWeekClient(week));
   if (scoredWeeks.length < 2) return {};
 
   const currentWeek = scoredWeeks[scoredWeeks.length - 1];
@@ -2090,6 +2236,9 @@ function getOthersUserOptionsForWeek(week) {
 }
 
 function renderFullStandings() {
+  if (fullStandingsTitleEl) {
+    fullStandingsTitleEl.textContent = state.isGameEnded ? 'Final Standings' : 'Current Standings';
+  }
   const weeks = Array.isArray(state.fullStandings?.weeks) ? state.fullStandings.weeks : [];
   const rows = Array.isArray(state.fullStandings?.rows) ? state.fullStandings.rows : [];
   const visibleWeeks = weeks.filter((week) => week !== 1);
@@ -2120,7 +2269,7 @@ function renderFullStandings() {
       .map((week) => {
         const points = Number(row.weekPoints?.[week] || 0);
         const isCurrentWeekCell = week === state.currentWeek;
-        if (isCurrentWeekCell) {
+        if (isCurrentWeekCell && !state.isGameEnded) {
           const hasSaved = Boolean(row.savedWeeks?.[week]);
           if (hasSaved) {
             return '<td class="standings-week-saved" title="Lineup saved">✔</td>';
@@ -2434,6 +2583,9 @@ async function loadViewedUserWeek(username) {
     state.isViewingOther = true;
     state.priorVotedOff = payload.priorVotedOff || {};
     state.votedOff = payload.votedOff || {};
+    state.finalPlacements = payload.finalPlacements && typeof payload.finalPlacements === 'object'
+      ? payload.finalPlacements
+      : {};
     state.fullLineup = normalizeLineup(payload.lineup || state.cast.map((castaway) => castaway.id));
     state.notes = payload.notes || {};
     state.winnerPicks = normalizeWinnerPicks(payload.winnerPicks || []);
@@ -2449,6 +2601,8 @@ async function loadViewedUserWeek(username) {
     state.othersHasSavedLineup = false;
     state.othersCountedByAdmin = false;
     state.canEditVotedOff = false;
+    state.canEditFinalPlacements = false;
+    state.isFinaleWeek = Boolean(payload.isFinaleWeek);
     state.dirty = false;
     clearMessage();
     render();
@@ -2462,7 +2616,7 @@ async function loadOthersRankingsData(week, username) {
   if (!state.user) return;
   const weekNum = Number(week);
   const targetUsername = String(username || '').trim();
-  if (!Number.isInteger(weekNum) || weekNum < 2 || weekNum >= state.currentWeek) return;
+  if (!Number.isInteger(weekNum) || weekNum < 2 || !isCompletedWeekClient(weekNum)) return;
   if (!targetUsername || targetUsername === state.user.username) return;
 
   try {
@@ -2477,6 +2631,9 @@ async function loadOthersRankingsData(week, username) {
     state.othersNotes = payload.notes || {};
     state.othersPriorVotedOff = payload.priorVotedOff || {};
     state.othersVotedOff = payload.votedOff || {};
+    state.othersFinalPlacements = payload.finalPlacements && typeof payload.finalPlacements === 'object'
+      ? payload.finalPlacements
+      : {};
     state.othersSkippedWeek = Boolean(payload.isSkippedWeek);
     state.othersOmittedWeek = Boolean(payload.isOmittedWeek);
     state.othersNoSubmit = Boolean(payload.noSubmit);
@@ -2484,6 +2641,7 @@ async function loadOthersRankingsData(week, username) {
     state.othersCountedByAdmin = Boolean(payload.countedByAdmin);
     state.othersWeekReport = payload.weekReport || null;
     state.othersWeekCommentOfWeek = payload.weekCommentOfWeek || null;
+    state.othersIsFinaleWeek = Boolean(payload.isFinaleWeek);
     state.othersLoadedWeek = weekNum;
     state.othersLoadedUsername = payload.username;
     clearMessage();
@@ -2664,6 +2822,10 @@ rankListEl.addEventListener('drop', (event) => {
 
 async function saveLineup() {
   if (!state.user) return;
+  if (state.isGameEnded) {
+    showMessage('The season is complete. Lineups are locked.');
+    return;
+  }
   if (state.selectedWeek !== state.currentWeek) {
     showMessage(`Week ${state.selectedWeek} is complete and cannot be edited.`);
     return;
@@ -2699,7 +2861,9 @@ async function saveLineup() {
     });
     clearCurrentLineupDraft();
     applyPayload(payload);
-    showMessage(`Week ${state.selectedWeek} lineup saved.`, false);
+    showMessage(state.isFinaleWeek
+      ? `Week ${state.selectedWeek} finale finish order saved.`
+      : `Week ${state.selectedWeek} lineup saved.`, false);
     render();
   } catch (error) {
     if (await handleConflictError(error, { refreshChat: false })) return;
@@ -2719,6 +2883,7 @@ function resetCurrentWeekLineup() {
 
 async function toggleSkipWeek() {
   if (!state.user) return;
+  if (state.isGameEnded) return;
   if (state.selectedWeek !== state.currentWeek) return;
   if (state.isViewingOther) return;
   if (state.isNoScoreWeek) return;
@@ -2767,6 +2932,42 @@ async function onAdminVotedOffChange(event) {
   } catch (error) {
     if (await handleConflictError(error, { refreshChat: false })) return;
     showMessage(error.message || 'Failed to update voted-off status.');
+    render();
+  }
+}
+
+async function onAdminFinalPlacementChange(event) {
+  const li = event.target.closest('.cast-card');
+  const id = li?.dataset.id;
+  if (!id || !state.canEditFinalPlacements) return;
+
+  const selectedPlacement = Number(event.target.value || 0);
+  const nextMap = { ...(state.finalPlacements || {}) };
+  if (Number.isInteger(selectedPlacement) && selectedPlacement > 0) {
+    for (const [castawayId, placement] of Object.entries(nextMap)) {
+      if (castawayId !== id && Number(placement) === selectedPlacement) {
+        delete nextMap[castawayId];
+      }
+    }
+    nextMap[id] = selectedPlacement;
+  } else {
+    delete nextMap[id];
+  }
+
+  try {
+    const payload = await apiRequest('admin-update-finalplacements', {
+      method: 'POST',
+      data: {
+        week: state.selectedWeek,
+        finalPlacements: nextMap
+      }
+    });
+    applyPayload(payload);
+    showMessage(`Updated final placements for Week ${state.selectedWeek}.`, false);
+    render();
+  } catch (error) {
+    if (await handleConflictError(error, { refreshChat: false })) return;
+    showMessage(error.message || 'Failed to update final placements.');
     render();
   }
 }
@@ -2982,11 +3183,18 @@ async function adminToggleWeekCommentFromOthers(castawayId) {
 
 async function advanceWeek() {
   if (!state.user?.isAdmin) return;
+  if (state.isGameEnded) {
+    showMessage('The season is already complete.');
+    return;
+  }
   if (state.isViewingOther || state.selectedWeek !== state.currentWeek) {
     showMessage(`Switch to Week ${state.currentWeek} before advancing.`);
     return;
   }
-  if (!window.confirm('Advance to the next week? This creates a new week with current voted-off players carried over.')) {
+  const confirmMessage = state.isFinaleWeek
+    ? 'Finalize the season? This will lock in Week 13 scoring and show the final standings.'
+    : 'Advance to the next week? This creates a new week with current voted-off players carried over.';
+  if (!window.confirm(confirmMessage)) {
     return;
   }
 
@@ -2999,7 +3207,7 @@ async function advanceWeek() {
       }
     });
     applyPayload(payload);
-    showMessage(`Advanced to Week ${state.currentWeek}.`, false);
+    showMessage(state.isGameEnded ? 'Season finalized. Final standings are live.' : `Advanced to Week ${state.currentWeek}.`, false);
     render();
   } catch (error) {
     if (await handleConflictError(error, { refreshChat: false })) return;

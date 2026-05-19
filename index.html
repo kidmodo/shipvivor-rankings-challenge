@@ -229,6 +229,7 @@
               <li>Week 1 is excluded from scoring.</li>
               <li>Week 2 is a legacy scoring week and is frozen as stored data (not recalculated).</li>
               <li>Weeks 3 through 12 use scaled scoring based on the remaining cast size.</li>
+              <li>Week 13 is the finale and uses exact final-placement scoring instead of elimination scoring.</li>
             </ul>
             <p><strong>Scoring (Week 3 Onward)</strong></p>
             <ul>
@@ -239,6 +240,13 @@
               <li>Points are rounded to one decimal place.</li>
               <li>If N = 1, the elimination awards 1.0 point.</li>
               <li>For double boots or multi-elimination episodes, elimination points are averaged so one episode yields one weekly score swing.</li>
+            </ul>
+            <p><strong>Week 13 Finale Scoring</strong></p>
+            <ul>
+              <li>Players rank the remaining finalists by predicted finish order: 1st, 2nd, 3rd, and so on.</li>
+              <li>Each exact placement match is worth 15.0 points.</li>
+              <li>Any non-exact placement is worth 0.0 points.</li>
+              <li>Admin enters the actual final placements, and ending the season locks in the final standings.</li>
             </ul>
             <p><strong>Legacy Week 2 Handling</strong></p>
             <ul>
@@ -251,6 +259,7 @@
               <li>Lineups lock at episode start: Wednesday 8:00 PM ET (from Week 3 onward).</li>
               <li>The countdown card shows time remaining until lock.</li>
               <li>After lock, active week lineup is read-only.</li>
+              <li>After Week 13 is finalized, the season is complete and final standings are shown.</li>
             </ul>
             <p><strong>Skip + Omit Rules</strong></p>
             <ul>
@@ -268,6 +277,7 @@
             <p><strong>Admin Controls</strong></p>
             <ul>
               <li>Advance week, mark voted-off castaways, edit tribe history, manage users, and update recap.</li>
+              <li>In Week 13, admin enters final placements instead of voted-off players.</li>
               <li>Admin can mark a user note as Comment of the Week for a completed week.</li>
               <li>Comment of the Week displays on the following week&apos;s recap card.</li>
             </ul>
@@ -286,6 +296,7 @@
           <span id="weekStats" class="stats"></span>
         </section>
         <p id="skipWeekNote" class="skip-note hidden"></p>
+        <p id="finaleNotice" class="finale-notice hidden"></p>
 
         <section id="scorePanel" class="score-panel">
           <h3>Your Score</h3>
@@ -352,7 +363,7 @@
       </section>
 
       <section id="fullStandingsView" class="full-standings-view hidden">
-        <h3>Current Standings</h3>
+        <h3 id="fullStandingsTitle">Current Standings</h3>
         <p class="report-subtext">Total points and week-by-week points for every player.</p>
         <div id="fullStandingsWrap" class="week-report-wrap"></div>
       </section>

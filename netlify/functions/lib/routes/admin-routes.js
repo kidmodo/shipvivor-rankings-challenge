@@ -1,6 +1,7 @@
 const {
   CAST_IDS,
   DEFAULT_TRIBE_BY_ID,
+  FINALE_WEEK,
   LEGACY_SCORE_WEEK,
   NO_SCORE_WEEKS
 } = require('../constants');
@@ -8,8 +9,11 @@ const {
   autoOmitMissingLineupsForWeek,
   computeWeekReport,
   ensureWeek,
+  getFinaleActiveIds,
   getEffectiveWeekVotedOff,
+  getFinalPlacementsForWeek,
   getNotesForWeek,
+  isGameEnded,
   propagateVotedOffForward
 } = require('../game');
 const { writeBackgroundImage } = require('../db');
@@ -24,6 +28,7 @@ const {
   ensureUserProfile,
   normalizeChatMessages,
   normalizeBackgroundConfig,
+  normalizeFinalPlacementsMap,
   normalizeScoreInclusionsMap,
   normalizeScoreOmissionsMap,
   normalizeTribeKey,
@@ -53,6 +58,17 @@ function validateExistingUser(db, username) {
   return Boolean(username && db.users[username]);
 }
 
+function getFinalePlacementValidation(db, placements, week = FINALE_WEEK) {
+  const finalists = getFinaleActiveIds(db, week);
+  const finalPlacements = normalizeFinalPlacementsMap(placements, finalists);
+  const assignedPlacements = Object.values(finalPlacements);
+  const expectedPlacements = Array.from({ length: finalists.length }, (_, index) => index + 1);
+  const complete = finalists.length > 0
+    && finalists.every((id) => Number.isInteger(finalPlacements[id]))
+    && expectedPlacements.every((placement) => assignedPlacements.includes(placement));
+  return { finalists, finalPlacements, complete };
+}
+
 async function handleAdminUpdateVotedOff({ event, db, authenticatedUser }) {
   if (!requireAdmin(authenticatedUser)) {
     return { response: response(403, { ok: false, error: 'Admin access required.' }) };
@@ -65,6 +81,9 @@ async function handleAdminUpdateVotedOff({ event, db, authenticatedUser }) {
   if (!validateCurrentWeek(db, week)) {
     return { response: response(400, { ok: false, error: 'Invalid week.' }) };
   }
+  if (week === FINALE_WEEK) {
+    return { response: response(400, { ok: false, error: 'Week 13 uses final placements instead of voted-off toggles.' }) };
+  }
   if (NO_SCORE_WEEKS.has(week)) {
     return { response: response(400, { ok: false, error: 'This week is locked.' }) };
   }
@@ -72,9 +91,49 @@ async function handleAdminUpdateVotedOff({ event, db, authenticatedUser }) {
   const votedOff = normalizeVotedOff(body.votedOff);
   db.game.weeks[week] = { votedOff };
   propagateVotedOffForward(db, week);
+  if (db.game.currentWeek >= FINALE_WEEK && db.game.weeks[FINALE_WEEK]) {
+    db.game.weeks[FINALE_WEEK].finalPlacements = getFinalePlacementValidation(
+      db,
+      db.game.weeks[FINALE_WEEK].finalPlacements,
+      FINALE_WEEK
+    ).finalPlacements;
+  }
   if (week < db.game.currentWeek) {
     db.reports[week] = computeWeekReport(db, week);
   }
+
+  return {
+    save: true,
+    response: response(200, {
+      ok: true,
+      ...buildGamePayload(db, authenticatedUser, week)
+    })
+  };
+}
+
+async function handleAdminUpdateFinalPlacements({ event, db, authenticatedUser }) {
+  if (!requireAdmin(authenticatedUser)) {
+    return { response: response(403, { ok: false, error: 'Admin access required.' }) };
+  }
+
+  const body = await parseBody(event);
+  const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
+  if (conflictResponse) return { response: conflictResponse };
+  const week = Number(body.week);
+  if (week !== FINALE_WEEK) {
+    return { response: response(400, { ok: false, error: 'Final placements can only be set for Week 13.' }) };
+  }
+  if (!validateCurrentWeek(db, week)) {
+    return { response: response(400, { ok: false, error: 'Invalid week.' }) };
+  }
+  const { finalPlacements } = getFinalePlacementValidation(db, body.finalPlacements, week);
+  if (!db.game.weeks[week] || typeof db.game.weeks[week] !== 'object') {
+    db.game.weeks[week] = {
+      votedOff: getEffectiveWeekVotedOff(db, week),
+      finalPlacements: {}
+    };
+  }
+  db.game.weeks[week].finalPlacements = finalPlacements;
 
   return {
     save: true,
@@ -175,6 +234,9 @@ async function handleAdminAdvanceWeek({ event, db, authenticatedUser }) {
   if (!requireAdmin(authenticatedUser)) {
     return { response: response(403, { ok: false, error: 'Admin access required.' }) };
   }
+  if (isGameEnded(db)) {
+    return { response: response(400, { ok: false, error: 'The season is already complete.' }) };
+  }
   const body = await parseBody(event);
   const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
   if (conflictResponse) return { response: conflictResponse };
@@ -190,6 +252,20 @@ async function handleAdminAdvanceWeek({ event, db, authenticatedUser }) {
   const completedWeek = db.game.currentWeek;
   autoOmitMissingLineupsForWeek(db, completedWeek);
   db.reports[completedWeek] = computeWeekReport(db, completedWeek);
+  if (completedWeek === FINALE_WEEK) {
+    const { complete } = getFinalePlacementValidation(db, getFinalPlacementsForWeek(db, completedWeek), completedWeek);
+    if (!complete) {
+      return { response: response(400, { ok: false, error: 'Enter every final placement for Week 13 before ending the game.' }) };
+    }
+    db.game.isEnded = true;
+    return {
+      save: true,
+      response: response(200, {
+        ok: true,
+        ...buildGamePayload(db, authenticatedUser, completedWeek)
+      })
+    };
+  }
   const nextWeek = db.game.currentWeek + 1;
   const previousVotedOff = getEffectiveWeekVotedOff(db, db.game.currentWeek);
   db.game.weeks[nextWeek] = { votedOff: previousVotedOff };
@@ -218,6 +294,9 @@ async function handleAdminJumpWeek({ event, db, authenticatedUser }) {
   const week = ensureWeek(db, body.week);
   if (!week) return { response: response(400, { ok: false, error: 'Invalid week.' }) };
   if (week > db.game.currentWeek) db.game.currentWeek = week;
+  if (db.game.currentWeek < FINALE_WEEK) {
+    db.game.isEnded = false;
+  }
   return {
     save: true,
     response: response(200, { ok: true, ...buildGamePayload(db, authenticatedUser, week) })
@@ -553,6 +632,7 @@ module.exports = {
   handleAdminSetWeekComment,
   handleAdminUpdateBackground,
   handleAdminUpdateCastTribe,
+  handleAdminUpdateFinalPlacements,
   handleAdminUpdateUserPassword,
   handleAdminUpdateUserProfile,
   handleAdminUpdateVotedOff,

@@ -22,6 +22,7 @@ const {
   ensureUserProfile,
   normalizeBackgroundConfig,
   normalizeChatMessages,
+  normalizeFinalPlacementsMap,
   normalizeScoreInclusionsMap,
   normalizeScoreOmissionsMap,
   normalizeSkippedWeeks,
@@ -59,8 +60,9 @@ function createDefaultDb() {
     legacyWeekScores: {},
     game: {
       currentWeek: 1,
+      isEnded: false,
       weeks: {
-        1: { votedOff: defaultVotedOff() }
+        1: { votedOff: defaultVotedOff(), finalPlacements: {} }
       }
     }
   };
@@ -199,27 +201,36 @@ function ensureDbShape(db) {
     }
   }
   if (!db.game || typeof db.game !== 'object') {
-    db.game = { currentWeek: 1, weeks: { 1: { votedOff: defaultVotedOff() } } };
+    db.game = { currentWeek: 1, isEnded: false, weeks: { 1: { votedOff: defaultVotedOff(), finalPlacements: {} } } };
     changed = true;
   }
   if (!Number.isInteger(db.game.currentWeek) || db.game.currentWeek < 1) {
     db.game.currentWeek = 1;
     changed = true;
   }
+  if (typeof db.game.isEnded !== 'boolean') {
+    db.game.isEnded = false;
+    changed = true;
+  }
   if (!db.game.weeks || typeof db.game.weeks !== 'object') {
-    db.game.weeks = { 1: { votedOff: defaultVotedOff() } };
+    db.game.weeks = { 1: { votedOff: defaultVotedOff(), finalPlacements: {} } };
     changed = true;
   }
   for (let week = 1; week <= db.game.currentWeek; week += 1) {
     const weekData = db.game.weeks[week];
     if (!weekData || typeof weekData !== 'object') {
-      db.game.weeks[week] = { votedOff: defaultVotedOff() };
+      db.game.weeks[week] = { votedOff: defaultVotedOff(), finalPlacements: {} };
       changed = true;
       continue;
     }
     const normalized = normalizeVotedOff(weekData.votedOff);
     if (JSON.stringify(normalized) !== JSON.stringify(weekData.votedOff || {})) {
       db.game.weeks[week].votedOff = normalized;
+      changed = true;
+    }
+    const normalizedFinalPlacements = normalizeFinalPlacementsMap(weekData.finalPlacements);
+    if (JSON.stringify(normalizedFinalPlacements) !== JSON.stringify(weekData.finalPlacements || {})) {
+      db.game.weeks[week].finalPlacements = normalizedFinalPlacements;
       changed = true;
     }
   }

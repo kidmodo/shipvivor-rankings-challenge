@@ -1,8 +1,9 @@
-const { CAST_IDS, NO_SCORE_WEEKS } = require('../constants');
+const { CAST_IDS, FINALE_WEEK, NO_SCORE_WEEKS } = require('../constants');
 const { readBackgroundImage } = require('../db');
 const {
   computeWeekReport,
   formatWeekLockTime,
+  getFinalPlacementsForWeek,
   getEffectiveWeekVotedOff,
   getNotesForWeek,
   getLineupForWeek,
@@ -10,6 +11,8 @@ const {
   getWeekLockDate,
   getWeekRecapForWeek,
   getWinnerPicksForWeek,
+  isGameEnded,
+  isWeekComplete,
   isWeekLocked
 } = require('../game');
 const {
@@ -88,6 +91,9 @@ async function handleSaveLineup({ event, db, authenticatedUser }) {
   const body = await parseBody(event);
   const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
   if (conflictResponse) return { response: conflictResponse };
+  if (isGameEnded(db)) {
+    return { response: response(400, { ok: false, error: 'The season is complete. Lineups are locked.' }) };
+  }
   const week = Number(body.week);
   if (!validateWeekInRange(db, week)) {
     return { response: response(400, { ok: false, error: 'Invalid week.' }) };
@@ -142,6 +148,9 @@ async function handleSetSkipWeek({ event, db, authenticatedUser }) {
   const body = await parseBody(event);
   const conflictResponse = getRevisionConflictResponse(db, parseExpectedRevision(body));
   if (conflictResponse) return { response: conflictResponse };
+  if (isGameEnded(db)) {
+    return { response: response(400, { ok: false, error: 'The season is complete. Skip settings are locked.' }) };
+  }
   const week = Number(body.week);
   if (!validateWeekInRange(db, week)) {
     return { response: response(400, { ok: false, error: 'Invalid week.' }) };
@@ -184,7 +193,7 @@ async function handleSetSkipWeek({ event, db, authenticatedUser }) {
 async function handleViewUserWeek({ event, db }) {
   const week = Number(event.queryStringParameters?.week);
   const username = normalizeUsername(event.queryStringParameters?.username);
-  if (!Number.isInteger(week) || week < 1 || week >= db.game.currentWeek) {
+  if (!Number.isInteger(week) || week < 1 || !isWeekComplete(db, week)) {
     return { response: response(400, { ok: false, error: 'You can only view completed weeks.' }) };
   }
   if (NO_SCORE_WEEKS.has(week)) {
@@ -218,6 +227,7 @@ async function handleViewUserWeek({ event, db }) {
       weekReport,
       priorVotedOff,
       votedOff,
+      finalPlacements: getFinalPlacementsForWeek(db, week),
       weekRecapWeek: week,
       weekRecapTitle: weekRecap.title,
       weekRecap: weekRecap.message,
@@ -225,6 +235,8 @@ async function handleViewUserWeek({ event, db }) {
       skippedWeeks,
       omittedWeeks,
       scoreInclusions,
+      isFinaleWeek: week === FINALE_WEEK,
+      isGameEnded: isGameEnded(db),
       hasSavedLineup: status.savedLineup,
       noSubmit: status.noSubmit,
       countedByAdmin: status.explicitInclude,

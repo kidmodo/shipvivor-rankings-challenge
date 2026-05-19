@@ -1013,6 +1013,18 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+.finale-notice {
+  margin: 0.55rem 0 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #d3a655;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(255, 234, 173, 0.95), rgba(255, 248, 226, 0.95));
+  color: #5e4014;
+  font-size: 0.94rem;
+  line-height: 1.45;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
 .lineup-viewer {
   margin-top: 0.55rem;
   display: grid;
@@ -1434,6 +1446,14 @@ button:disabled {
   margin-top: 0;
 }
 
+.prediction-mode-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 900;
+  color: #8a5b10;
+}
+
 .status,
 .voted-off-tag {
   display: inline-flex;
@@ -1448,6 +1468,28 @@ button:disabled {
   border: 1px solid #b18e62;
   border-radius: 999px;
   background: #f6ebd6;
+}
+
+.final-placement-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.48rem;
+  border: 1px solid #c99b44;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #fff0ba, #f7d985);
+  color: #67410f;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.status select {
+  border: 1px solid #a47d47;
+  border-radius: 7px;
+  padding: 0.22rem 0.35rem;
+  background: #fff9ec;
+  color: #4e4134;
+  font-weight: 700;
 }
 
 .card-main {

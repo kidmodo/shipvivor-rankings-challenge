@@ -1,6 +1,7 @@
-const { CASTAWAYS, LEGACY_SCORE_WEEK, NO_SCORE_WEEKS } = require('./constants');
+const { CASTAWAYS, FINALE_WEEK, LEGACY_SCORE_WEEK, NO_SCORE_WEEKS } = require('./constants');
 const {
   computeWeekReport,
+  getFinalPlacementsForWeek,
   getEffectiveWeekVotedOff,
   getLineupForWeek,
   getNotesForWeek,
@@ -10,6 +11,8 @@ const {
   getWeekRecapForWeek,
   getWeekTransition,
   getWinnerPicksForWeek,
+  isGameEnded,
+  isWeekComplete,
   isWeekLocked
 } = require('./game');
 const {
@@ -193,6 +196,7 @@ function buildGamePayload(db, authenticatedUser, requestedWeek) {
   const selectedWeekLocked = isWeekLocked(selectedWeek);
   const currentWeekLockDate = getWeekLockDate(db.game.currentWeek);
   const currentWeekLocked = isWeekLocked(db.game.currentWeek);
+  const gameEnded = isGameEnded(db);
   const selectedWeekRecap = getWeekRecapForWeek(db, selectedWeek);
   const recapCommentWeek = Math.max(1, selectedWeek - 1);
   const selectedWeekComment = getWeekCommentOfWeek(db, recapCommentWeek);
@@ -223,19 +227,22 @@ function buildGamePayload(db, authenticatedUser, requestedWeek) {
     ? getWeekScoringStatus(db, authenticatedUser.username, selectedWeek)
     : { skipped: false, omitted: false };
 
-  const canShowWeekReport = selectedWeek < db.game.currentWeek;
+  const canShowWeekReport = isWeekComplete(db, selectedWeek);
   const weekReport = canShowWeekReport ? computeWeekReport(db, selectedWeek) : null;
   const chat = authenticatedUser
     ? buildChatPayload(db, authenticatedUser)
     : { messages: [], userAvatarId: null };
+  const isFinaleWeek = selectedWeek === FINALE_WEEK;
 
   return {
     cast: CASTAWAYS,
     user: authenticatedUser,
     currentWeek: db.game.currentWeek,
+    isGameEnded: gameEnded,
     selectedWeek,
     weeks: Array.from({ length: db.game.currentWeek }, (_, index) => index + 1),
     votedOff: selectedWeekVotedOff,
+    finalPlacements: getFinalPlacementsForWeek(db, selectedWeek),
     priorVotedOff,
     lineup,
     notes,
@@ -268,7 +275,9 @@ function buildGamePayload(db, authenticatedUser, requestedWeek) {
     weekReport,
     chat,
     myScore: score,
-    canEditVotedOff: Boolean(authenticatedUser?.isAdmin && selectedWeek > 1 && !NO_SCORE_WEEKS.has(selectedWeek))
+    isFinaleWeek,
+    canEditVotedOff: Boolean(authenticatedUser?.isAdmin && selectedWeek > 1 && !NO_SCORE_WEEKS.has(selectedWeek) && selectedWeek !== FINALE_WEEK),
+    canEditFinalPlacements: Boolean(authenticatedUser?.isAdmin && selectedWeek === FINALE_WEEK)
   };
 }
 

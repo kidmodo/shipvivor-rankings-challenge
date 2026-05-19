@@ -140,6 +140,20 @@ function normalizeSkippedWeeks(skippedWeeks) {
   return map;
 }
 
+function normalizeFinalPlacementsMap(finalPlacements, allowedIds = CAST_IDS) {
+  const normalized = {};
+  const source = finalPlacements && typeof finalPlacements === 'object' ? finalPlacements : {};
+  const allowedSet = new Set(Array.isArray(allowedIds) && allowedIds.length ? allowedIds : CAST_IDS);
+  for (const [id, value] of Object.entries(source)) {
+    if (!allowedSet.has(id)) continue;
+    const placement = Number(value);
+    if (!Number.isInteger(placement) || placement < 1) continue;
+    if (Object.values(normalized).includes(placement)) continue;
+    normalized[id] = placement;
+  }
+  return normalized;
+}
+
 function sanitizeNote(value) {
   const raw = typeof value === 'string' ? value : '';
   return raw.replace(/\r/g, '').trim().slice(0, MAX_NOTE_LENGTH);
@@ -310,6 +324,7 @@ module.exports = {
   normalizeBackgroundConfig,
   normalizeNotesMap,
   normalizeOrder,
+  normalizeFinalPlacementsMap,
   normalizeScoreInclusionsMap,
   normalizeScoreOmissionsMap,
   normalizeSkippedWeeks,

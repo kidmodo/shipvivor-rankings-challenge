@@ -1,5 +1,6 @@
 const {
   CAST_IDS,
+  FINALE_WEEK,
   LEGACY_SCORE_WEEK,
   LOCK_ANCHOR_UTC_MS,
   LOCK_ANCHOR_WEEK,
@@ -13,6 +14,7 @@ const {
   defaultVotedOff,
   normalizeNotesMap,
   normalizeOrder,
+  normalizeFinalPlacementsMap,
   normalizeScoreOmissionsMap,
   normalizeSkippedWeeks,
   normalizeVotedOff,
@@ -66,13 +68,25 @@ function getUserJoinedWeek(db, username) {
   return joinedWeek;
 }
 
+function isGameEnded(db) {
+  return Boolean(db?.game?.isEnded);
+}
+
+function isWeekComplete(db, week) {
+  const weekNum = Number(week);
+  if (!Number.isInteger(weekNum) || weekNum < 1) return false;
+  const currentWeek = Number(db?.game?.currentWeek || 1);
+  if (weekNum < currentWeek) return true;
+  return isGameEnded(db) && weekNum === currentWeek;
+}
+
 function ensureWeek(db, week) {
   const weekNum = Number(week);
   if (!Number.isInteger(weekNum) || weekNum < 1) return null;
   if (!db.game.weeks[weekNum]) {
     const previousWeek = Math.max(1, weekNum - 1);
     const previousVotedOff = normalizeVotedOff(db.game.weeks[previousWeek]?.votedOff);
-    db.game.weeks[weekNum] = { votedOff: previousVotedOff };
+    db.game.weeks[weekNum] = { votedOff: previousVotedOff, finalPlacements: {} };
   }
   return weekNum;
 }
@@ -113,6 +127,18 @@ function getWeekTransition(db, week) {
     currentWeekVotedOff,
     eliminations
   };
+}
+
+function getFinaleActiveIds(db, week = FINALE_WEEK) {
+  const previousWeekVotedOff = week > 1 ? getEffectiveWeekVotedOff(db, week - 1) : defaultVotedOff();
+  return CAST_IDS.filter((id) => !previousWeekVotedOff[id]);
+}
+
+function getFinalPlacementsForWeek(db, week) {
+  const weekNum = Number(week);
+  if (!Number.isInteger(weekNum) || weekNum < 1) return {};
+  const activeIds = weekNum === FINALE_WEEK ? getFinaleActiveIds(db, weekNum) : CAST_IDS;
+  return normalizeFinalPlacementsMap(db.game?.weeks?.[weekNum]?.finalPlacements, activeIds);
 }
 
 function propagateVotedOffForward(db, startWeek) {
@@ -234,6 +260,8 @@ module.exports = {
   ensureWeek,
   formatWeekLockTime,
   autoOmitMissingLineupsForWeek,
+  getFinaleActiveIds,
+  getFinalPlacementsForWeek,
   getEffectiveWeekVotedOff,
   getLineupForWeek,
   getNotesForWeek,
@@ -244,6 +272,8 @@ module.exports = {
   getWeekTransition,
   getWinnerPicksForWeek,
   hasSavedLineupForWeek,
+  isGameEnded,
+  isWeekComplete,
   isWeekLocked,
   propagateVotedOffForward
 };

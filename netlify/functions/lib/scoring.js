@@ -1,5 +1,7 @@
 const {
   CASTAWAYS,
+  FINALE_EXACT_MATCH_POINTS,
+  FINALE_WEEK,
   LEGACY_SCORE_WEEK,
   NO_SCORE_WEEKS,
   SCALED_SCORE_ALPHA,
@@ -8,9 +10,12 @@ const {
 } = require('./constants');
 const {
   getLineupForWeek,
+  getFinalPlacementsForWeek,
   getUserJoinedWeek,
   getWeekTransition,
-  hasSavedLineupForWeek
+  hasSavedLineupForWeek,
+  isGameEnded,
+  isWeekComplete
 } = require('./game');
 const {
   normalizeScoreInclusionsMap,
@@ -21,6 +26,7 @@ const { getBirthNameForUsername } = require('./profiles');
 
 function getScoringVersionForWeek(week) {
   if (Number(week) === LEGACY_SCORE_WEEK) return 'legacy_v1';
+  if (Number(week) === FINALE_WEEK) return 'finale_v3';
   if (Number(week) >= SCALED_SCORE_START_WEEK) return 'scaled_v2';
   return 'legacy_v0';
 }
@@ -59,7 +65,7 @@ function getWeekScoringStatus(db, username, week) {
   const joinedLate = week < joinedWeek;
   const explicitOmit = Boolean(omittedWeeks[week]);
   const explicitInclude = Boolean(includedWeeks[week]);
-  const isCompletedWeek = Number.isInteger(week) && week < Number(db.game?.currentWeek || 1);
+  const isCompletedWeek = isWeekComplete(db, week);
   const noSubmit = isCompletedWeek && week >= SCALED_SCORE_START_WEEK && !savedLineup && !joinedLate;
   const omitted = Boolean(explicitOmit || joinedLate || (noSubmit && !explicitInclude));
   return {
@@ -71,6 +77,42 @@ function getWeekScoringStatus(db, username, week) {
     explicitInclude,
     noSubmit,
     omitted
+  };
+}
+
+function computeFinaleWeekPoints(db, username, week = FINALE_WEEK) {
+  if (Number(week) !== FINALE_WEEK) {
+    return { points: 0, matches: [], finalists: [], finalPlacements: {} };
+  }
+  if (!isGameEnded(db) && Number(week) === Number(db.game?.currentWeek || 0)) {
+    return { points: 0, matches: [], finalists: [], finalPlacements: getFinalPlacementsForWeek(db, week) };
+  }
+  const { previousWeekVotedOff } = getWeekTransition(db, week);
+  const lineup = getLineupForWeek(db, username, week);
+  const finalists = lineup.filter((id) => !previousWeekVotedOff[id]);
+  const finalPlacements = getFinalPlacementsForWeek(db, week);
+  const matches = finalists
+    .map((id, index) => {
+      const predictedPlacement = index + 1;
+      const actualPlacement = Number(finalPlacements[id] || 0);
+      const correct = actualPlacement === predictedPlacement;
+      return {
+        id,
+        name: CASTAWAYS.find((castaway) => castaway.id === id)?.name || id,
+        predictedPlacement,
+        actualPlacement,
+        correct,
+        points: correct ? FINALE_EXACT_MATCH_POINTS : 0
+      };
+    })
+    .filter((entry) => entry.actualPlacement > 0);
+
+  const points = roundToTenth(matches.reduce((sum, entry) => sum + entry.points, 0));
+  return {
+    points,
+    matches,
+    finalists,
+    finalPlacements
   };
 }
 
@@ -186,6 +228,21 @@ function computeScoreBreakdown(db, username) {
     }
 
     if (week >= SCALED_SCORE_START_WEEK) {
+      if (week === FINALE_WEEK) {
+        const finale = computeFinaleWeekPoints(db, username, week);
+        if (isGameEnded(db) || finale.points > 0 || finale.matches.length > 0) {
+          weekBreakdown.push({
+            week,
+            points: roundToTenth(finale.points),
+            scoringVersion: 'finale_v3',
+            matches: finale.matches
+          });
+          if (finale.points > 0) {
+            totalPoints = roundToTenth(totalPoints + finale.points);
+          }
+        }
+        continue;
+      }
       const scaled = computeScaledWeekPoints(db, username, week);
       if (scaled.points > 0 || scaled.eliminations.length > 0) {
         weekBreakdown.push({
@@ -267,6 +324,7 @@ function buildFullStandings(db) {
 module.exports = {
   buildFullStandings,
   buildLeaderboard,
+  computeFinaleWeekPoints,
   computeLegacyWeekPoints,
   computeScaledWeekPoints,
   computeScoreBreakdown,
